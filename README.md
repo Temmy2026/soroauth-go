@@ -938,7 +938,8 @@ For questions and where to send each kind of report, see
 The Markdown in this repository is link-checked by the
 [`links` workflow](.github/workflows/links.yml) and spell-checked by the
 [`spellcheck` workflow](.github/workflows/spellcheck.yml). Neither runs on pull
-requests, which carry only the three checks the branch ruleset requires: both
+requests, which carry five checks — the three from `ci.yml` plus `codeql` and
+`dependency review` from [`security.yml`](.github/workflows/security.yml): both
 run on push to `main`, on a weekly schedule, and on demand. A broken internal
 link or a typo is therefore caught one commit after it lands rather than one
 review before. External links are only reported, never failed, since a page

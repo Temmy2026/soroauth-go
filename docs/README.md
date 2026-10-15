@@ -7,14 +7,15 @@ the architecture note and the guides is the one they need. The repository root
 
 ## Start here
 
-| Document                           | Answers                                                                                                    |
-| ---------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| [README](../README.md)             | What soroauth is, how to install it, and a 20-line quickstart for signing a simulated entry.               |
-| [ARCHITECTURE](../ARCHITECTURE.md) | How the signing flow works, what each file is responsible for, and the CAP-71-01 delegate model.           |
-| [CONTRIBUTING](../CONTRIBUTING.md) | How to set up, what the tests expect, the commit format, and what a pull request has to pass.              |
-| [SECURITY](../SECURITY.md)         | How to report a vulnerability privately, what counts as critical, and the unaudited status of the library. |
-| [CHANGELOG](../CHANGELOG.md)       | What changed in each release.                                                                              |
-| [faq](faq.md)                      | Why soroauth behaves as it does: the recurring design questions, each with its source.                     |
+| Document                                  | Answers                                                                                                         |
+| ----------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| [README](../README.md)                    | What soroauth is, how to install it, and a 20-line quickstart for signing a simulated entry.                    |
+| [ARCHITECTURE](../ARCHITECTURE.md)        | How the signing flow works, what each file is responsible for, and the CAP-71-01 delegate model.                |
+| [CONTRIBUTING](../CONTRIBUTING.md)        | How to set up, what the tests expect, the commit format, and what a pull request has to pass.                   |
+| [SECURITY](../SECURITY.md)                | How to report a vulnerability privately, what counts as critical, and the unaudited status of the library.      |
+| [security-analysis](security-analysis.md) | What static analysis and dependency review run, how findings are triaged, and why the pull-request cap is five. |
+| [CHANGELOG](../CHANGELOG.md)              | What changed in each release.                                                                                   |
+| [faq](faq.md)                             | Why soroauth behaves as it does: the recurring design questions, each with its source.                          |
 
 ## Guides
 

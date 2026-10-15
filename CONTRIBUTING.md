@@ -145,7 +145,7 @@ the generated `e2e/RESULTS.md` and the committed vectors are excluded in
 CI runs all of these except `golangci-lint`, plus the golden-vector drift check
 and the contract build; the signing-path budget check runs on push to main (see
 [Benchmarks](#benchmarks)). `golangci-lint` is a local gate only, because pull
-requests are capped at three checks — see [Linting](#linting).
+requests are capped at five checks — see [Linting](#linting).
 
 The suite runs with `-race` because `internal/xdrcopy` shares encoder and
 decoder buffers across calls through `sync.Pool`; without the detector,
@@ -162,9 +162,13 @@ go test -fuzz=FuzzCopyRoundTrip -fuzztime=30s ./internal/xdrcopy
 ## Linting
 
 The gate is `.golangci.yml`, run locally. There is no `lint` job in
-`.github/workflows/ci.yml`: pull requests are capped at three checks, and the
-two that gate a merge are `vet and test` and `golden vectors are reproducible`.
-Run the linter before you push; a reviewer may also run it.
+`.github/workflows/ci.yml`: pull requests are capped at five checks, and the two
+that gate a merge are `vet and test` and `golden vectors are reproducible`. The
+cap was raised from three to five deliberately, for the `codeql` and
+`dependency review` jobs in
+[`.github/workflows/security.yml`](../.github/workflows/security.yml) — see
+[Static security analysis](security-analysis.md). Run the linter before you
+push; a reviewer may also run it.
 
 The config is deliberately small, and each linter in it is there because the
 project would actually fix what it reports; the file says which and why, and
@@ -619,8 +623,8 @@ asserting over.
 
 The `coverage` job in `.github/workflows/ci-go.yml` measures test coverage,
 enforces a floor of **60%**, and publishes the report via Codecov. It runs on
-push to `main` and on demand, not on pull requests: pull requests carry only the
-three checks the branch ruleset requires.
+push to `main` and on demand, not on pull requests: pull requests carry the five
+checks the repository runs, and coverage is not one of them.
 
 - Run locally to check your coverage before pushing:
   ```sh

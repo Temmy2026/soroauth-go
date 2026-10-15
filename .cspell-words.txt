@@ -10,6 +10,7 @@ soroban
 # Technical terms specific to this project
 addressbound
 auth
+behavioural
 cap
 cli
 denylist
@@ -361,6 +362,7 @@ smoke
 smokes
 sanity
 sanities
+sarif
 regression
 regressions
 benchmark

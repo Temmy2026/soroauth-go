@@ -102,7 +102,8 @@ jobs:
           done
           exit "$failed"
   # A fuzz run is not a pull-request check: pull requests are capped at the
-  # three checks ci.yml reports, and 30 seconds per target per push would slow
+  # five checks (the three ci.yml reports plus codeql and dependency review in
+  # security.yml), and 30 seconds per target per push would slow
   # every review for targets whose job is to find inputs over time, not to
   # gate one diff. It runs on push to main and on demand, and the seed corpora
   # in testdata/fuzz are what a pull request actually exercises, through the

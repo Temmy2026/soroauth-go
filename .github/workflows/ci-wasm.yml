@@ -47,7 +47,7 @@ jobs:
       - name: build the wasm module
         run: ./wasm/build.sh
       # A step of the existing job, not a job of its own: another job would be
-      # another row, and the pull-request check count is capped at three. The
+      # another row, and the pull-request check count is capped at five. The
       # size is enforced right after the build that produced it, before the
       # slower parity and TypeScript steps, so a core that outgrew its ceiling
       # fails fast and says so by how much.

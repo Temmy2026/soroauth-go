@@ -15,9 +15,10 @@ rather than after.
 Every Markdown file here is link-checked by the
 [`links` workflow](.github/workflows/links.yml) and spell-checked by the
 [`spellcheck` workflow](.github/workflows/spellcheck.yml). Neither gates a pull
-request — pull requests carry only the three checks the branch ruleset requires
-— so both run on push to `main`, on a weekly schedule, and on demand. Internal
-links (between files in this repository) and spelling are failed on those runs;
+request — pull requests carry five checks, the three in `ci.yml` plus `codeql`
+and `dependency review` in [`security.yml`](.github/workflows/security.yml) — so
+both run on push to `main`, on a weekly schedule, and on demand. Internal links
+(between files in this repository) and spelling are failed on those runs;
 external links are only reported, since a page moving elsewhere is not a
 regression in this project.
 

@@ -51,7 +51,7 @@ jobs:
       # The seed corpus is generated from the golden vectors, so it can drift
       # the same way they can. Regenerating and diffing costs a second and is a
       # step of this job rather than a job of its own, because pull requests are
-      # capped at three checks. The seeds themselves are exercised by the
+      # capped at five checks. The seeds themselves are exercised by the
       # `go test` below: Go runs every file in
       # testdata/fuzz/FuzzValidateDelegateOrder as a normal subtest.
       - name: fuzz seed corpus is reproducible
@@ -73,7 +73,7 @@ jobs:
       # from `go test ./...`, but it needs no network: it reads the committed
       # report when a live one is absent (e2e/testdata/parity_regression.json).
       # Run here as a step of this job rather than as a job of its own, because
-      # pull requests are capped at three checks. This is what makes a parity
+      # pull requests are capped at five checks. This is what makes a parity
       # regression fail the build instead of only a local run.
       - name: parity report regression
         run: go test -tags e2e -run TestParityReportRegression ./e2e
@@ -81,8 +81,8 @@ jobs:
       # about re-wrapping, and the two diagrams in docs/diagrams are committed
       # render output that must not drift from their source. Both run as steps
       # of this job rather than as jobs of their own, because pull requests are
-      # capped at the three checks ci.yml reports and a new PR workflow would
-      # add a row. The pinned tools come from the root package-lock.json.
+      # capped at the five checks ci.yml and security.yml report and a new PR
+      # workflow would add a row. The pinned tools come from the root package-lock.json.
       - name: install documentation tooling
         run: npm ci
       - name: markdown is formatted
@@ -144,11 +144,12 @@ jobs:
             exit 1
           fi
 
-  # Third and final pull-request check. The fixture contracts are Rust and the
+  # Third of the three pull-request checks ci.yml reports. The fixture contracts
+  # are Rust and the
   # Go jobs do not compile them, which is how a contract that had never built
   # reached main and broke the scheduled e2e run for five runs in a row.
   #
-  # Build and unit-test in one job on purpose: pull requests are capped at three
+  # Build and unit-test in one job on purpose: pull requests are capped at five
   # checks, so this covers both rather than becoming two.
   contracts:
     name: contracts build and test

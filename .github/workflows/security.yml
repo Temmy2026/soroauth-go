@@ -1,0 +1,87 @@
+# Static security analysis and dependency review.
+#
+# Two checks: CodeQL over the Go query suite, and a dependency review that
+# fails a pull request introducing a known-vulnerable dependency. Neither
+# existed before — `cspell.json` mentioned "codeql" and nothing ran it — and a
+# library that decodes untrusted input and handles key material is exactly the
+# shape both are good at.
+#
+# This is the fourth and fifth pull-request check. Every other workflow here is
+# deliberately push-only so a contributor sees a short list; adding these two
+# to `pull_request` is a deliberate revision of that cap, recorded in
+# CONTRIBUTING.md and docs/security-analysis.md, because a security gate that
+# does not run before merge does not gate.
+name: security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # CodeQL also runs on a schedule so a newly-published query can surface a
+  # finding in code that has not changed. Dependency review is pull-request
+  # only and skips on the other events.
+  schedule:
+    - cron: '0 8 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  # The Go query suite. `init` installs the CodeQL database and the Go
+  # extractor, `go build` feeds it the packages, and `analyze` uploads the
+  # SARIF results to GitHub code scanning. Findings are triaged in
+  # docs/security-analysis.md: fixed, or dismissed there with a written reason.
+  codeql:
+    name: codeql
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Required to upload the SARIF results to GitHub code scanning.
+      security-events: write
+      # Required for the action to read workflow run metadata on a re-run.
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          check-latest: true
+
+      - name: initialize codeql
+        uses: github/codeql-action/init@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4
+        with:
+          languages: go
+          # The security-and-quality suite for Go, rather than the narrower
+          # default, so maintainability findings the analyzer is confident
+          # about are reported and triaged alongside the security ones.
+          queries: security-and-quality
+
+      # CodeQL for a compiled language needs the code built. `go build ./...`
+      # is enough for the extractor; the js/wasm package is build-tagged and
+      # not part of a host build.
+      - name: build
+        run: go build ./...
+
+      - name: analyze
+        uses: github/codeql-action/analyze@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4
+        with:
+          category: /language:go
+
+  # Blocks a pull request that introduces a dependency with a known advisory.
+  # `fail-on-severity: high` is the floor the branch ruleset cares about; the
+  # action posts the diff summary on the pull request so a reviewer sees what
+  # changed, not only that it failed.
+  dependency-review:
+    name: dependency review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Required to post the dependency-diff summary on the pull request.
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/dependency-review-action@cc4f6536e38d1126c5e3b0683d469a14f23bfea4 # v3
+        with:
+          fail-on-severity: high
+          comment-summary-in-pr: on-failure

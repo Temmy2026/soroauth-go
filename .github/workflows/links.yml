@@ -4,7 +4,8 @@ name: links
 # that move, so they are checked rather than trusted.
 #
 # This workflow does not run on pull requests. Pull requests are capped at the
-# three checks ci.yml reports, and a workflow that runs on pull_request adds a
+# five checks ci.yml and security.yml report, and a workflow that runs on
+# pull_request adds a
 # row for every job it declares — an `if:`-gated job included, since a skipped
 # job still reports. So this runs on push to main, on a weekly schedule, and on
 # demand, the same shape as ci-go.yml and the other advisory workflows. A broken

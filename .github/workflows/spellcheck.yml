@@ -3,8 +3,8 @@ name: spellcheck
 # Spell-checks Markdown documentation. Runs on push to main, on a weekly
 # schedule, and on demand — not on pull requests.
 #
-# Pull requests are capped at the three checks the branch ruleset requires, and
-# a workflow that runs on pull_request adds a row for every job it declares.
+# Pull requests are capped at the five checks ci.yml and security.yml report,
+# and a workflow that runs on pull_request adds a row for every job it declares.
 # links.yml, ci-go.yml, ci-parity.yml, ci-wasm.yml and ci-adapters.yml are all
 # shaped this way for the same reason. The cost is that a typo reaches main and
 # is caught on the push, one commit later rather than one review earlier.
