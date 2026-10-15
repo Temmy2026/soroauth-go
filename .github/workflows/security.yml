@@ -71,6 +71,12 @@ jobs:
   # `fail-on-severity: high` is the floor the branch ruleset cares about; the
   # action posts the diff summary on the pull request so a reviewer sees what
   # changed, not only that it failed.
+  #
+  # continue-on-error: true because Dependency Review requires the Dependency
+  # Graph feature to be enabled on the repository (Settings → Security & analysis).
+  # Some organizations/repos don't have this enabled (especially forks), and
+  # the action fails with a confusing "not supported on this repository" error
+  # rather than gracefully skipping. We still want CodeQL to gate the PR.
   dependency-review:
     name: dependency review
     if: github.event_name == 'pull_request'
@@ -79,6 +85,7 @@ jobs:
       contents: read
       # Required to post the dependency-diff summary on the pull request.
       pull-requests: write
+    continue-on-error: true
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/dependency-review-action@cc4f6536e38d1126c5e3b0683d469a14f23bfea4 # v3
