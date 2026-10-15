@@ -548,6 +548,61 @@ func TestSignerRetryPolicy(t *testing.T) {
 	}
 }
 
+// TestIsSignatureRejection locks in the line between an error a retry could
+// clear and one it cannot. The distinction is the whole point of WithRetry:
+// "connection refused" is a transport fault worth retrying, while a refusal
+// the signer actually produced is not.
+func TestIsSignatureRejection(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"nil", nil, false},
+		{"signature mismatch", fmt.Errorf("wrap: %w", ErrSignatureMismatch), true},
+		{"missing signer", fmt.Errorf("wrap: %w", ErrMissingSigner), true},
+		{"too many signatures", fmt.Errorf("wrap: %w", ErrTooManySignatures), true},
+		{"connection refused", errors.New("remote: sign: dial tcp: connection refused"), false},
+		{"connection reset", errors.New("remote: sign: connection reset by peer"), false},
+		{"remote server refusal", errors.New("remote: sign: server refused: signer refused: bad credentials"), true},
+		{"unsupported", errors.New("some unsupported operation"), false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsSignatureRejection(tt.err); got != tt.want {
+				t.Errorf("IsSignatureRejection(%v) = %t, want %t", tt.err, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestWithRetryRetriesConnectionRefused is the regression the e2e suite caught:
+// a "connection refused" transport error was classified as a rejection and
+// never retried, so a transient network fault failed the run outright.
+func TestWithRetryRetriesConnectionRefused(t *testing.T) {
+	address := testContractAddress(t, "soroauth-refused-contract")
+	var attempts int
+	signer := WithRetry(SignerFunc(address, func(_ context.Context, _ xdr.HashIdPreimage, _ [32]byte) (xdr.ScVal, error) {
+		attempts++
+		if attempts < 3 {
+			return xdr.ScVal{}, errors.New("dial tcp 127.0.0.1:8000: connect: connection refused")
+		}
+		return scBytes([]byte("ok")), nil
+	}), RetryConfig{
+		Attempts:       3,
+		InitialBackoff: time.Millisecond,
+		MaxBackoff:     10 * time.Millisecond,
+	})
+
+	if _, err := signer.Sign(context.Background(), xdr.HashIdPreimage{}, testPayload("x")); err != nil {
+		t.Fatalf("Sign returned an unexpected error: %v", err)
+	}
+	if attempts != 3 {
+		t.Errorf("attempts = %d, want 3; a connection-refused transport error must be retried", attempts)
+	}
+}
+
 func TestSignerRetryIntegration(t *testing.T) {
 	var attempts int
 	retrySigner := WithRetry(SignerFunc("GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF", func(ctx context.Context, preimage xdr.HashIdPreimage, payload [32]byte) (xdr.ScVal, error) {
