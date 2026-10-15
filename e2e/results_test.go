@@ -26,7 +26,9 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-// writeResults records a full run to e2e/RESULTS.md.
+// writeResults records a full run to the network's results file: RESULTS.md for
+// testnet, which is the evidence of record, and RESULTS.local.md for any other
+// network, so a local iteration cannot overwrite the committed evidence.
 func writeResults() {
 	resultsMu.Lock()
 	defer resultsMu.Unlock()
@@ -35,6 +37,9 @@ func writeResults() {
 		return
 	}
 
+	kind := classifyNetwork(runNetwork)
+	fileName := resultsFileName(kind)
+
 	present := map[string]bool{}
 	for _, r := range results {
 		present[r.ID] = true
@@ -42,7 +47,7 @@ func writeResults() {
 	for _, id := range requiredScenarios {
 		if !present[id] {
 			fmt.Fprintf(os.Stderr,
-				"not writing RESULTS.md: scenario %s did not run; it is only written from a complete run\n", id)
+				"not writing %s: scenario %s did not run; it is only written from a complete run\n", fileName, id)
 			return
 		}
 	}
@@ -50,10 +55,20 @@ func writeResults() {
 	sort.Slice(results, func(i, j int) bool { return results[i].ID < results[j].ID })
 
 	var out strings.Builder
-	out.WriteString("# Testnet results\n\n")
-	out.WriteString("Every line below came from a real run against Stellar testnet. This file is\n")
-	out.WriteString("written by `go test -tags e2e ./e2e/...` and only when every scenario ran,\n")
-	out.WriteString("so it cannot be a partial record. Do not edit it by hand.\n\n")
+	switch kind {
+	case networkTestnet:
+		out.WriteString("# Testnet results\n\n")
+		out.WriteString("Every line below came from a real run against Stellar testnet, the evidence\n")
+		out.WriteString("of record for this file. A local run writes RESULTS.local.md instead and\n")
+		out.WriteString("never touches this one. It is written by `go test -tags e2e ./e2e/...` and\n")
+		out.WriteString("only when every scenario ran, so it cannot be a partial record. Do not edit\n")
+		out.WriteString("it by hand.\n\n")
+	default:
+		fmt.Fprintf(&out, "# Results — %s\n\n", kind)
+		out.WriteString("Every line below came from a real run against a local network (a quickstart\n")
+		out.WriteString("container, typically), not testnet. This file is for iteration and is not the\n")
+		out.WriteString("evidence of record: the testnet run in RESULTS.md is. Do not edit it by hand.\n\n")
+	}
 
 	fmt.Fprintf(&out, "- Date (UTC): %s\n", time.Now().UTC().Format("2006-01-02 15:04"))
 	fmt.Fprintf(&out, "- Network: %s\n", runNetwork)
@@ -97,19 +112,21 @@ func writeResults() {
 		out.WriteString("\n")
 	}
 
-	if err := os.WriteFile("RESULTS.md", []byte(out.String()), 0o644); err != nil {
-		fmt.Fprintf(os.Stderr, "writing RESULTS.md: %v\n", err)
+	if err := os.WriteFile(fileName, []byte(out.String()), 0o644); err != nil {
+		fmt.Fprintf(os.Stderr, "writing %s: %v\n", fileName, err)
 		return
 	}
-	fmt.Fprintln(os.Stderr, "wrote e2e/RESULTS.md")
+	fmt.Fprintf(os.Stderr, "wrote e2e/%s\n", fileName)
 }
 
-// Recorded by the first harness so RESULTS.md can name the network it ran
+// Recorded by the first harness so the results file can name the network it ran
 // against.
 var (
 	runNetwork         string
 	runRPCURL          string
 	runProtocolVersion uint32
+	// runExplorerBase is empty for a network with no public explorer.
+	runExplorerBase string
 )
 
 // noteRun is called by newHarness.
@@ -119,6 +136,7 @@ func noteRun(passphrase, url string, protocolVersion uint32) {
 	runNetwork = passphrase
 	runRPCURL = url
 	runProtocolVersion = protocolVersion
+	runExplorerBase = explorerBaseURLFor(classifyNetwork(passphrase))
 }
 
 type parityEntryReport struct {

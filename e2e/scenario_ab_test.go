@@ -40,7 +40,7 @@ func TestScenarioA(t *testing.T) {
 	t.Logf("tx hash: %s", result.Hash)
 	t.Logf("ledger:  %d", result.Ledger)
 	t.Logf("arm:     %s", result.Arm)
-	t.Logf("link:    %s%s", explorerBaseURL, result.Hash)
+	t.Logf("link:    %s%s", runExplorerBase, result.Hash)
 
 	record(scenarioResult{
 		ID:        "A",
@@ -123,7 +123,7 @@ func TestScenarioB(t *testing.T) {
 	t.Logf("ledger:  %d", result.Ledger)
 	t.Logf("arm:     %s", result.Arm)
 	t.Logf("route:   %s", route)
-	t.Logf("link:    %s%s", explorerBaseURL, result.Hash)
+	t.Logf("link:    %s%s", runExplorerBase, result.Hash)
 
 	record(scenarioResult{
 		ID:        "B",

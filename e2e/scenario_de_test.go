@@ -83,7 +83,7 @@ func TestScenarioD(t *testing.T) {
 	t.Logf("tx hash:   %s", result.Hash)
 	t.Logf("ledger:    %d", result.Ledger)
 	t.Logf("arm:       %s", result.Arm)
-	t.Logf("link:      %s%s", explorerBaseURL, result.Hash)
+	t.Logf("link:      %s%s", runExplorerBase, result.Hash)
 
 	record(scenarioResult{
 		ID:        "D",
@@ -200,8 +200,9 @@ func TestScenarioPolicyWithinLimit(t *testing.T) {
 	d1 := h.newAccount(t, "delegate D1")
 	to := h.newAccount(t, "recipient B")
 
-	// Deploy policy account with limit 1000 and period 100
-	deployed := h.deployPolicyAccount(t, payer, []string{d1.Address()}, 1000, 100)
+	// Deploy policy account with a limit comfortably above the transfer and a
+	// period of 100 ledgers, so the single transfer is within both.
+	deployed := h.deployPolicyAccount(t, payer, []string{d1.Address()}, transferAmount*2, 100)
 	h.fundContract(t, payer, deployed.ContractAddress, transferAmount*5)
 
 	op := h.transferOp(t, scAddressOf(t, deployed.ContractAddress), scAddressOf(t, to.Address()),

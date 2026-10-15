@@ -10,19 +10,68 @@ they create accounts, submit transactions, and wait on ledger close.
 ## Running them
 
 ```sh
+make e2e          # against testnet (the default)
+make e2e-local    # against a local quickstart container
+```
+
+`make e2e` builds the fixture wasm with `stellar-cli` and runs the suite against
+`https://soroban-testnet.stellar.org`. It is the equivalent of:
+
+```sh
 cd e2e/contracts && stellar contract build    # once, produces the fixture wasm
 cd ../.. && go test -tags e2e -v ./e2e/...
 ```
 
-By default they run against `https://soroban-testnet.stellar.org`. Point them
-elsewhere with `SOROAUTH_RPC_URL`. Whatever URL is used is verified with live
-`getNetwork`, `getHealth` and `getLatestLedger` calls before anything relies on
-it, and the passphrase and protocol version found are logged.
+`make e2e-local` builds the same wasm, starts a local `stellar/quickstart`
+container, runs the identical scenarios against it, and removes the container
+afterwards even if the tests fail. It needs Docker as well as `stellar-cli`.
 
-Every account is generated at runtime and funded by friendbot. No key is read
-from disk, written to disk, or committed. Nothing here touches mainnet.
+## Choosing a network
+
+The suite is not compiled for one network: `SOROAUTH_RPC_URL` selects the RPC,
+and the passphrase, protocol version and friendbot endpoint are read from the
+network the RPC reports rather than assumed. The same scenarios run against
+testnet, a local quickstart, or anything else that speaks Soroban RPC.
+
+| Variable                 | Effect                                                                                                                                      |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SOROAUTH_RPC_URL`       | The RPC to use. Defaults to `https://soroban-testnet.stellar.org`.                                                                          |
+| `SOROAUTH_FUNDER_SEED`   | Secret seed of an already-funded account that creates the test accounts by transfer. When set, funding never touches friendbot.             |
+| `SOROAUTH_FRIENDBOT_URL` | Overrides the friendbot URL. Otherwise the network's own advertised one is used, falling back to testnet's only for a testnet-like network. |
+
+Whatever URL is used is verified with live `getNetwork`, `getHealth` and
+`getLatestLedger` calls before anything relies on it, and the passphrase,
+protocol version and chosen funding path are logged at the start of the run.
+
+### A local network
+
+A local quickstart runs the standalone network, whose passphrase is
+`Standalone Network ; February 2017` and whose root account is fixed (derived
+from that passphrase), so every machine has the same funded account.
+`make e2e-local` uses the network's root account as the funder:
+
+- The container is started and waited on by `e2e/quickstart.sh`, which blocks
+  until the RPC answers `getNetwork`; the root secret seed is read back from the
+  container's own startup log rather than hard-coded.
+- `SOROAUTH_FUNDER_SEED` is set to that seed, so test accounts are funded by a
+  `CreateAccount` transfer from the root account and friendbot is never called.
+  This is the path a local network needs when friendbot is disabled, and it is
+  what makes a local run reproducible offline.
+- A local quickstart does not deploy the native XLM Stellar Asset Contract,
+  which every scenario that moves XLM through a SAC needs, so `make e2e-local`
+  deploys it (`e2e/quickstart.sh deploy-native-asset`) before the run. A public
+  network already has one, which is why this step is local-only.
+- A local network may run a different protocol version than testnet (currently
+  28 locally). The suite reports the version it found and does not assume parity
+  with testnet, so a protocol change shows up in the log rather than as a
+  signing failure.
+
+Every account is generated at runtime. No key is read from disk, written to
+disk, or committed. Nothing here touches mainnet.
 
 A full run takes roughly three minutes, most of it waiting for ledgers to close.
+A local run is faster, since ledgers close every few seconds rather than every
+five.
 
 ## What each scenario proves
 
@@ -109,19 +158,22 @@ test meant to build.
 
 The tests are split by role rather than kept in one file:
 
-| File                        | Holds                                                                                                                                                                                                                          |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `harness_test.go`           | Connecting to and verifying the RPC, funding accounts, building, simulating, assembling, submitting and polling; decoding the submitted envelope's credential arm; rendering host failures and extracting their error details. |
-| `transfer_test.go`          | The native-SAC `transfer(from, to, amount)` operation builder and small `ScVal`/`ScAddress` helpers.                                                                                                                           |
-| `runner_test.go`            | The single scenario runner and its parameter table: the record/sign/enforce/assemble/submit shape shared by every scenario, plus decoded-entry and signed-entry diagnostics.                                                   |
-| `runner_regression_test.go` | The deterministic regression fixture for rejection-path resource headroom.                                                                                                                                                     |
-| `scenario_ab_test.go`       | Scenarios A and B, including the V2 route decision.                                                                                                                                                                            |
-| `scenario_c_test.go`        | Scenario C, the multisig account setup, and the single-signature control.                                                                                                                                                      |
-| `scenario_de_test.go`       | Scenarios D and E and the delegates flow that wraps, signs per address, and submits. Scenarios F to I call the same flow.                                                                                                      |
-| `scenario_fghi_test.go`     | Scenarios F to I: the two session-key scenarios and the two threshold scenarios, each asserting the contract's own error code where it expects a refusal.                                                                      |
-| `scenario_jk_test.go`       | Scenarios J and K: the passkey-wallet flow, the P-256 credential key, and the signer built from `NewPasskeySigner` with `SignSecp256r1` and `Secp256r1SignatureScVal`.                                                         |
-| `deploy_test.go`            | Uploading a fixture's wasm, instantiating it with that fixture's constructor arguments, and funding a contract with XLM. Holds the `ScVal` encoders the fixtures' constructors need.                                           |
-| `results_test.go`           | `TestMain` and the writer that produces `RESULTS.md` from a complete run.                                                                                                                                                      |
+| File                        | Holds                                                                                                                                                                                                                            |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `harness_test.go`           | Connecting to and verifying the RPC, funding accounts, building, simulating, assembling, submitting and polling; decoding the submitted envelope's credential arm; rendering host failures and extracting their error details.   |
+| `transfer_test.go`          | The native-SAC `transfer(from, to, amount)` operation builder and small `ScVal`/`ScAddress` helpers.                                                                                                                             |
+| `runner_test.go`            | The single scenario runner and its parameter table: the record/sign/enforce/assemble/submit shape shared by every scenario, plus decoded-entry and signed-entry diagnostics.                                                     |
+| `runner_regression_test.go` | The deterministic regression fixture for rejection-path resource headroom.                                                                                                                                                       |
+| `scenario_ab_test.go`       | Scenarios A and B, including the V2 route decision.                                                                                                                                                                              |
+| `scenario_c_test.go`        | Scenario C, the multisig account setup, and the single-signature control.                                                                                                                                                        |
+| `scenario_de_test.go`       | Scenarios D and E and the delegates flow that wraps, signs per address, and submits. Scenarios F to I call the same flow.                                                                                                        |
+| `scenario_fghi_test.go`     | Scenarios F to I: the two session-key scenarios and the two threshold scenarios, each asserting the contract's own error code where it expects a refusal.                                                                        |
+| `scenario_jk_test.go`       | Scenarios J and K: the passkey-wallet flow, the P-256 credential key, and the signer built from `NewPasskeySigner` with `SignSecp256r1` and `Secp256r1SignatureScVal`.                                                           |
+| `deploy_test.go`            | Uploading a fixture's wasm, instantiating it with that fixture's constructor arguments, and funding a contract with XLM. Holds the `ScVal` encoders the fixtures' constructors need.                                             |
+| `network.go`                | The network decisions — classifying the passphrase, resolving the RPC and friendbot URLs, choosing the funder seed and picking the results file — kept out of the build-tagged files so a normal `go test ./...` exercises them. |
+| `network_test.go`           | Unit tests for those decisions, the only e2e-related tests that run without the tag and without a network.                                                                                                                       |
+| `quickstart.sh`             | Starts, queries and stops the local quickstart container `make e2e-local` runs against, and deploys the native asset contract a fresh local network lacks.                                                                       |
+| `results_test.go`           | `TestMain` and the writer that produces `RESULTS.md` (testnet) or `RESULTS.local.md` (any other network) from a complete run.                                                                                                    |
 
 ## The fixture contracts
 
@@ -188,6 +240,12 @@ a single-scenario run. It carries the date, the network and protocol version,
 and for every scenario the transaction hash, the ledger, the credential arm
 observed on the submitted envelope, an explorer link, and the raw host error
 verbatim where there was one.
+
+Only a **testnet** run writes `RESULTS.md`: it is the evidence of record, the
+file the README's testnet claims point at. Any other network — a local
+quickstart, a futurenet — writes `RESULTS.local.md` instead, so a local
+iteration can never overwrite the committed evidence with a run nobody agreed
+to. The file also says which it is, and which network it came from.
 
 Whether a result is labelled "accepted" or "rejected as expected" comes from the
 scenario's own `ExpectRejection` field, not from a list of IDs in the writer, so

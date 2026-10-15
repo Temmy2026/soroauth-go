@@ -139,9 +139,21 @@ func SignAndSubmit(ctx context.Context, p Params) (Submission, error) {
 		return sub, err
 	}
 
+	// Resolve the source account's sequence number once, ahead of the value it
+	// currently holds, and build every pass from that snapshot. The three
+	// passes are the same transaction priced differently, so they must all
+	// carry the same sequence number; taking it fresh from the account on each
+	// pass would either submit the account's current (already used) sequence,
+	// which the network refuses as txBAD_SEQ, or, if the account is mutable,
+	// climb one sequence per pass.
+	source, err := p.sequencer()
+	if err != nil {
+		return sub, fmt.Errorf("soroauth: sign and submit: %w", err)
+	}
+
 	// 1. Record. The RPC reports which addresses must authorize the call and
 	// hands back unsigned authorization entries.
-	recordTx, err := p.build(p.Operation)
+	recordTx, err := p.build(source, p.Operation)
 	if err != nil {
 		return sub, fmt.Errorf("soroauth: sign and submit (record): %w", err)
 	}
@@ -169,7 +181,7 @@ func SignAndSubmit(ctx context.Context, p Params) (Submission, error) {
 	// accounts for the signatures that are actually going out.
 	enforceOp := p.Operation
 	enforceOp.Auth = signedEntries
-	enforceTx, err := p.build(enforceOp)
+	enforceTx, err := p.build(source, enforceOp)
 	if err != nil {
 		return sub, fmt.Errorf("soroauth: sign and submit (enforce): %w", err)
 	}
@@ -185,7 +197,7 @@ func SignAndSubmit(ctx context.Context, p Params) (Submission, error) {
 	if err := p.applyResources(&finalOp, enforced); err != nil {
 		return sub, fmt.Errorf("soroauth: sign and submit (assemble): %w", err)
 	}
-	finalTx, err := p.build(finalOp)
+	finalTx, err := p.build(source, finalOp)
 	if err != nil {
 		return sub, fmt.Errorf("soroauth: sign and submit (assemble): %w", err)
 	}
@@ -214,20 +226,37 @@ func (p Params) validate() error {
 	return nil
 }
 
+// sequencer snapshots the source account with the sequence number the next
+// transaction should consume: one past the account's current value, which is
+// what the network requires. It returns an immutable copy so the three passes
+// cannot drift apart, and so the caller's account is left untouched.
+func (p Params) sequencer() (txnbuild.Account, error) {
+	if p.Source == nil {
+		return nil, fmt.Errorf("Source is required")
+	}
+	current, err := p.Source.GetSequenceNumber()
+	if err != nil {
+		return nil, fmt.Errorf("reading the source account's sequence number: %w", err)
+	}
+	return &txnbuild.SimpleAccount{
+		AccountID: p.Source.GetAccountID(),
+		Sequence:  current + 1,
+	}, nil
+}
+
 // build makes an unsigned transaction carrying one InvokeHostFunction.
 //
-// IncrementSequenceNum is false because every pass builds from the same source
-// account state: the record pass, the enforcing pass and the submitted
-// transaction are the same transaction priced differently, not three
-// transactions. Incrementing per pass would submit a sequence number two ahead
-// of the account.
-func (p Params) build(op txnbuild.InvokeHostFunction) (*txnbuild.Transaction, error) {
+// IncrementSequenceNum is false because the sequence number is already
+// resolved in the snapshot passed in, and all three passes must use it: the
+// record pass, the enforcing pass and the submitted transaction are the same
+// transaction priced differently, not three transactions.
+func (p Params) build(source txnbuild.Account, op txnbuild.InvokeHostFunction) (*txnbuild.Transaction, error) {
 	baseFee := p.BaseFee
 	if baseFee == 0 {
 		baseFee = txnbuild.MinBaseFee * 100
 	}
 	return txnbuild.NewTransaction(txnbuild.TransactionParams{
-		SourceAccount:        p.Source,
+		SourceAccount:        source,
 		IncrementSequenceNum: false,
 		Operations:           []txnbuild.Operation{&op},
 		BaseFee:              baseFee,

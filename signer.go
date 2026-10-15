@@ -547,7 +547,15 @@ type RetryConfig struct {
 }
 
 // IsSignatureRejection reports whether an error represents a signature rejection or refusal
-// that should never be retried (e.g. signature mismatch, invalid credentials, refusal).
+// that should never be retried (e.g. signature mismatch, missing signer, refusal).
+//
+// The sentinels are authoritative when the original error is still reachable.
+// The one string marker that remains is how a remote signer reports a refusal:
+// it flattens its error to text over the wire, so the sentinel is gone by the
+// time the client sees it. The marker is a phrase, not a bare word, on purpose:
+// "connection refused" is a transport error — exactly the kind WithRetry
+// exists to retry — and matching "refused" alone would mistake it for a
+// rejection and fail fast on a fault a retry could clear.
 func IsSignatureRejection(err error) bool {
 	if err == nil {
 		return false
@@ -555,9 +563,7 @@ func IsSignatureRejection(err error) bool {
 	if errors.Is(err, ErrSignatureMismatch) || errors.Is(err, ErrMissingSigner) || errors.Is(err, ErrTooManySignatures) {
 		return true
 	}
-	// Also check string signatures or custom rejection markers
-	s := err.Error()
-	return strings.Contains(s, "signature mismatch") || strings.Contains(s, "refused") || strings.Contains(s, "unsupported")
+	return strings.Contains(err.Error(), "server refused")
 }
 
 // WithRetry wraps a Signer with a jittered exponential backoff retry policy for transport errors.

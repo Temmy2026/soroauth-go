@@ -30,6 +30,10 @@ type fakeClient struct {
 	authModes  []string
 	authCounts []int
 
+	// seqNums records, per simulation, the sequence number the simulated
+	// transaction carried.
+	seqNums []xdr.SequenceNumber
+
 	latest    uint32
 	latestErr error
 
@@ -45,6 +49,7 @@ func (f *fakeClient) SimulateTransaction(_ context.Context, req rpc.SimulateTran
 	f.calls = append(f.calls, "simulate:"+req.AuthMode)
 	f.authModes = append(f.authModes, req.AuthMode)
 	f.authCounts = append(f.authCounts, authEntryCount(req.Transaction))
+	f.seqNums = append(f.seqNums, txSequenceNumber(req.Transaction))
 	if f.simErr != nil {
 		return rpc.SimulateTransactionResponse{}, f.simErr
 	}
@@ -103,6 +108,20 @@ func authEntryCount(encoded string) int {
 		return -1
 	}
 	return len(invoke.Auth)
+}
+
+// txSequenceNumber reports the sequence number a base64 transaction carries, so
+// a test can prove every pass agrees on it.
+func txSequenceNumber(encoded string) xdr.SequenceNumber {
+	var tx xdr.TransactionEnvelope
+	if err := xdr.SafeUnmarshalBase64(encoded, &tx); err != nil {
+		return 0
+	}
+	v1, ok := tx.GetV1()
+	if !ok {
+		return 0
+	}
+	return v1.Tx.SeqNum
 }
 
 func testKeypair(t testing.TB, label string) *keypair.Full {
@@ -300,6 +319,52 @@ func TestSignAndSubmitSubmitsASignedEnvelope(t *testing.T) {
 	// And the arm is read off the envelope that went out, not assumed.
 	if sub.Arm != xdr.SorobanCredentialsTypeSorobanCredentialsAddress.String() {
 		t.Errorf("arm %q, want the address arm that was signed", sub.Arm)
+	}
+}
+
+// TestSignAndSubmitUsesTheNextSequenceNumber guards the txBAD_SEQ defect.
+// A source account is loaded carrying the sequence number its last transaction
+// consumed; the transaction must be built with the next one. And every pass
+// must agree on it: a record or enforcing pass built with a different sequence
+// number would price a transaction that is not the one submitted.
+func TestSignAndSubmitUsesTheNextSequenceNumber(t *testing.T) {
+	signer := testKeypair(t, "rpcflow-signer")
+	client := &fakeClient{
+		simulations: []rpc.SimulateTransactionResponse{
+			simResponse(t, 100, recordedEntry(t, signer.Address())),
+			simResponse(t, 5000, recordedEntry(t, signer.Address())),
+		},
+	}
+	p := testParams(t, client) // the source account is at sequence 1
+	account := p.Source.(*txnbuild.SimpleAccount)
+
+	if _, err := SignAndSubmit(context.Background(), p); err != nil {
+		t.Fatalf("SignAndSubmit returned an unexpected error: %v", err)
+	}
+
+	want := xdr.SequenceNumber(account.Sequence + 1)
+	if len(client.seqNums) != 2 {
+		t.Fatalf("recorded %d simulations, want 2", len(client.seqNums))
+	}
+	for i, got := range client.seqNums {
+		if got != want {
+			t.Errorf("simulation %d carried sequence number %d, want %d", i, got, want)
+		}
+	}
+
+	var envelope xdr.TransactionEnvelope
+	if err := xdr.SafeUnmarshalBase64(client.sentEnvelope, &envelope); err != nil {
+		t.Fatalf("decoding the submitted envelope: %v", err)
+	}
+	v1, ok := envelope.GetV1()
+	if !ok {
+		t.Fatal("the submitted envelope is not a v1 transaction envelope")
+	}
+	if v1.Tx.SeqNum != want {
+		t.Errorf("submitted sequence number %d, want %d", v1.Tx.SeqNum, want)
+	}
+	if account.Sequence != 1 {
+		t.Errorf("SignAndSubmit mutated the caller's source account to sequence %d, want it left at 1", account.Sequence)
 	}
 }
 

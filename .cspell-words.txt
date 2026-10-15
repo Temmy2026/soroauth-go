@@ -190,6 +190,7 @@ fixtures
 fixture
 deploy
 fund
+funder
 friendbot
 rpc
 url

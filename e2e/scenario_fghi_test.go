@@ -93,7 +93,7 @@ func TestScenarioF(t *testing.T) {
 	t.Logf("tx hash:   %s", result.Hash)
 	t.Logf("ledger:    %d", result.Ledger)
 	t.Logf("arm:       %s", result.Arm)
-	t.Logf("link:      %s%s", explorerBaseURL, result.Hash)
+	t.Logf("link:      %s%s", runExplorerBase, result.Hash)
 
 	record(scenarioResult{
 		ID:        "F",
@@ -225,7 +225,7 @@ func TestScenarioH(t *testing.T) {
 	t.Logf("tx hash:   %s", result.Hash)
 	t.Logf("ledger:    %d", result.Ledger)
 	t.Logf("arm:       %s", result.Arm)
-	t.Logf("link:      %s%s", explorerBaseURL, result.Hash)
+	t.Logf("link:      %s%s", runExplorerBase, result.Hash)
 
 	record(scenarioResult{
 		ID:        "H",
