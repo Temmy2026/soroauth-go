@@ -33,11 +33,6 @@ import (
 	"github.com/soroauth/soroauth-go"
 )
 
-const (
-	defaultRPCURL   = "https://soroban-testnet.stellar.org"
-	explorerBaseURL = "https://stellar.expert/explorer/testnet/tx/"
-)
-
 // scenarioResult is one recorded outcome, collected for RESULTS.md.
 type scenarioResult struct {
 	ID        string
@@ -63,11 +58,11 @@ var (
 )
 
 func record(r scenarioResult) {
-	if r.TxHash != "" {
-		r.ExplorerURL = explorerBaseURL + r.TxHash
-	}
 	resultsMu.Lock()
 	defer resultsMu.Unlock()
+	if r.TxHash != "" && runExplorerBase != "" {
+		r.ExplorerURL = runExplorerBase + r.TxHash
+	}
 	results = append(results, r)
 }
 
@@ -75,21 +70,28 @@ func record(r scenarioResult) {
 type harness struct {
 	client          *rpcclient.Client
 	url             string
+	kind            networkKind
 	passphrase      string
 	protocolVersion uint32
 	friendbotURL    string
+	// funder is the account that funds test accounts by transfer when one is
+	// configured. It is nil when funding goes through friendbot instead.
+	funder *keypair.Full
 }
 
 // newHarness connects to the RPC named by SOROAUTH_RPC_URL and verifies it with
 // a live call before anything relies on it. A wrong or stale URL would
 // otherwise surface much later as a confusing signing failure.
+//
+// The network is chosen by configuration, not compiled in: SOROAUTH_RPC_URL
+// points at testnet, a quickstart container, or anything else that speaks RPC,
+// and the passphrase, protocol version and friendbot endpoint are read from the
+// live network rather than assumed. A local network may run a different
+// protocol version, so it is reported rather than compared against testnet.
 func newHarness(t *testing.T) *harness {
 	t.Helper()
 
-	url := os.Getenv("SOROAUTH_RPC_URL")
-	if url == "" {
-		url = defaultRPCURL
-	}
+	url := resolveRPCURL(os.Getenv)
 
 	client := rpcclient.NewClient(url, nil)
 	t.Cleanup(func() { _ = client.Close() })
@@ -118,7 +120,27 @@ func newHarness(t *testing.T) *harness {
 		t.Fatalf("the RPC at %s did not answer getLatestLedger: %v", url, err)
 	}
 
+	kind := classifyNetwork(network.Passphrase)
+	friendbot := friendbotURL(kind, network.FriendbotURL, os.Getenv)
+
+	var funder *keypair.Full
+	if seed := funderSeed(os.Getenv); seed != "" {
+		funder, err = keypair.ParseFull(seed)
+		if err != nil {
+			t.Fatalf("SOROAUTH_FUNDER_SEED is not a valid secret seed: %v", err)
+		}
+	}
+	switch {
+	case funder != nil:
+		t.Logf("funding:          transferring from %s (SOROAUTH_FUNDER_SEED)", funder.Address())
+	case friendbot != "":
+		t.Logf("funding:          friendbot at %s", friendbot)
+	default:
+		t.Fatalf("no way to fund accounts on %s: set SOROAUTH_FRIENDBOT_URL or SOROAUTH_FUNDER_SEED", url)
+	}
+
 	t.Logf("rpc:              %s", url)
+	t.Logf("network:          %s", kind)
 	t.Logf("passphrase:       %s", network.Passphrase)
 	t.Logf("protocol version: %d", ledger.ProtocolVersion)
 	t.Logf("latest ledger:    %d", ledger.Sequence)
@@ -128,13 +150,15 @@ func newHarness(t *testing.T) *harness {
 	return &harness{
 		client:          client,
 		url:             url,
+		kind:            kind,
 		passphrase:      network.Passphrase,
 		protocolVersion: ledger.ProtocolVersion,
-		friendbotURL:    network.FriendbotURL,
+		friendbotURL:    friendbot,
+		funder:          funder,
 	}
 }
 
-// newAccount generates a keypair and funds it with friendbot.
+// newAccount generates a keypair and funds it.
 func (h *harness) newAccount(t *testing.T, label string) *keypair.Full {
 	t.Helper()
 
@@ -147,14 +171,25 @@ func (h *harness) newAccount(t *testing.T, label string) *keypair.Full {
 	return kp
 }
 
-// fund asks friendbot for a funded account, retrying briefly: friendbot is a
-// shared testnet service and an occasional failure is not a test failure.
+// fund funds an account, using the funder transfer when one is configured and
+// friendbot otherwise.
+//
+// A local quickstart can be run with friendbot disabled, so funding must not
+// depend on it. SOROAUTH_FUNDER_SEED names an already-funded account — the
+// quickstart's root account, typically — whose transfer creates the test
+// account without asking any service. When there is no funder, friendbot is
+// used: the network's own, which a quickstart advertises, or testnet's.
 func (h *harness) fund(t *testing.T, address string) {
 	t.Helper()
 
-	friendbot := h.friendbotURL
-	if friendbot == "" {
-		friendbot = "https://friendbot.stellar.org/"
+	if h.funder != nil {
+		h.fundByTransfer(t, address, h.funder)
+		return
+	}
+
+	if h.friendbotURL == "" {
+		t.Fatalf("no funder configured and the network advertises no friendbot; " +
+			"set SOROAUTH_FUNDER_SEED to an already-funded account")
 	}
 
 	var lastErr error
@@ -163,7 +198,7 @@ func (h *harness) fund(t *testing.T, address string) {
 			time.Sleep(time.Duration(attempt) * 2 * time.Second)
 		}
 
-		resp, err := http.Get(fmt.Sprintf("%s?addr=%s", friendbot, address))
+		resp, err := http.Get(fmt.Sprintf("%s?addr=%s", h.friendbotURL, address))
 		if err != nil {
 			lastErr = err
 			continue
@@ -182,6 +217,38 @@ func (h *harness) fund(t *testing.T, address string) {
 		lastErr = fmt.Errorf("friendbot returned %d: %s", resp.StatusCode, truncate(string(body), 300))
 	}
 	t.Fatalf("could not fund %s: %v", address, lastErr)
+}
+
+// fundByTransfer creates and funds address with a CreateAccount operation from
+// an already-funded source. It is the friendbot-free path.
+func (h *harness) fundByTransfer(t *testing.T, address string, funder *keypair.Full) {
+	t.Helper()
+
+	account := h.account(t, funder.Address())
+	tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
+		SourceAccount:        account,
+		IncrementSequenceNum: true,
+		Operations: []txnbuild.Operation{&txnbuild.CreateAccount{
+			Destination: address,
+			Amount:      "10000",
+		}},
+		BaseFee:       txnbuild.MinBaseFee,
+		Preconditions: txnbuild.Preconditions{TimeBounds: txnbuild.NewInfiniteTimeout()},
+	})
+	if err != nil {
+		t.Fatalf("building the funding transaction for %s: %v", address, err)
+	}
+
+	signed, err := tx.Sign(h.passphrase, funder)
+	if err != nil {
+		t.Fatalf("signing the funding transaction for %s: %v", address, err)
+	}
+
+	result := h.send(t, signed)
+	if result.Status != rpc.TransactionStatusSuccess {
+		t.Fatalf("funding %s from %s failed: %s %s",
+			address, funder.Address(), result.Status, result.RawError)
+	}
 }
 
 func truncate(s string, n int) string {

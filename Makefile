@@ -30,7 +30,13 @@ LDFLAGS    := -s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.
 # the local smoke that proves a target starts and its seeds pass.
 FUZZTIME ?= 30s
 
-.PHONY: all help fmt vet test fuzz build server man md-check md-format vectors vectors-check demo-check diagrams diagrams-check e2e clean parity parity-rust differential wasm wasm-check wasm-budget ts-test
+# The host port `make e2e-local` publishes the quickstart container's RPC on.
+# It is one variable so the RPC URL the tests are pointed at and the port the
+# container is published on cannot disagree.
+E2E_LOCAL_PORT ?= 8000
+E2E_LOCAL_RPC  ?= http://localhost:$(E2E_LOCAL_PORT)/rpc
+
+.PHONY: all help fmt vet test fuzz build server man md-check md-format vectors vectors-check demo-check diagrams diagrams-check e2e e2e-local clean parity parity-rust differential wasm wasm-check wasm-budget ts-test
 
 # The default target runs exactly what a pull request has to pass before the
 # golden-vector drift check, which needs Node and the network.
@@ -54,6 +60,7 @@ help:
 	@echo "  make diagrams-check fail if the committed diagram SVGs have drifted"
 	@echo "  make demo-check    check the browser demo's logic against the pinned SDK"
 	@echo "  make e2e           build the test contract and run the live testnet suite"
+	@echo "  make e2e-local     run the same suite against a local quickstart container"
 	@echo "  make parity        run the Python stellar-sdk parity harness"
 	@echo "  make parity-rust   run the Rust stellar-xdr parity harness"
 	@echo "  make differential  regenerate the differential corpus and check it with JS and Python"
@@ -154,6 +161,31 @@ e2e:
 		exit 1; \
 	}
 	cd e2e/contracts && stellar contract build
+	$(GO) test -tags e2e -v ./e2e/...
+
+# The same suite against a local standalone network instead of testnet, so the
+# scenarios are reproducible offline and in CI without depending on testnet or
+# friendbot.
+#
+# The quickstart container is started for the duration and removed afterwards,
+# even if the tests fail. Funding goes through a transfer from the network's
+# root account (SOROAUTH_FUNDER_SEED), not friendbot, so the friendbot-free path
+# is the one a local run exercises. A local run writes RESULTS.local.md;
+# RESULTS.md stays testnet's, because testnet is the evidence of record.
+e2e-local:
+	@command -v stellar >/dev/null 2>&1 || { \
+		echo "stellar-cli 28.0.0 is required to build the e2e test contract"; \
+		exit 1; \
+	}
+	cd e2e/contracts && stellar contract build
+	@set -eu; \
+	export SOROAUTH_QUICKSTART_PORT=$(E2E_LOCAL_PORT); \
+	./e2e/quickstart.sh start; \
+	trap './e2e/quickstart.sh stop' EXIT; \
+	seed="$$(./e2e/quickstart.sh root-seed)"; \
+	./e2e/quickstart.sh deploy-native-asset "$$seed"; \
+	SOROAUTH_RPC_URL=$(E2E_LOCAL_RPC) \
+	SOROAUTH_FUNDER_SEED="$$seed" \
 	$(GO) test -tags e2e -v ./e2e/...
 
 # The Python parity harness recomputes every vector's preimage and payload with

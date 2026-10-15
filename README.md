@@ -67,6 +67,7 @@ make build        # build the CLI to bin/soroauth
 make vectors      # regenerate testdata/vectors from the pinned JS SDK
 make vectors-check # regenerate, then fail if the committed vectors changed
 make e2e          # build the test contract and run the live testnet suite
+make e2e-local    # run the same suite against a local quickstart container
 make wasm-budget  # build the wasm core and fail if it is over its size ceiling
 ```
 

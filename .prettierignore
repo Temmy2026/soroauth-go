@@ -11,7 +11,9 @@ node_modules
 # e2e/RESULTS.md is written by `go test -tags e2e` and says so in its own header.
 # It is deliberately not formatted: the next live run rewrites it in the
 # generator's style, so formatting it here would just make the check fail then.
+# e2e/RESULTS.local.md is the same kind of generated file, for a non-testnet run.
 e2e/RESULTS.md
+e2e/RESULTS.local.md
 bin
 wasm/dist
 wasm/ts/dist

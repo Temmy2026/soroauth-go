@@ -101,6 +101,7 @@ rather than across several documents. Run `make help` for the list.
 | `make vectors-check` | regenerates the vectors and fails if the committed files changed                                      |
 | `make demo-check`    | checks the browser demo's logic against the pinned SDK (`node examples/browser-passkey/app.test.mjs`) |
 | `make e2e`           | builds the test contract with `stellar-cli` and runs `go test -tags e2e -v ./e2e/...`                 |
+| `make e2e-local`     | runs the same suite against a local quickstart container, funded by transfer rather than friendbot    |
 | `make parity`        | installs the pinned Python SDK into `.venv-parity` and runs the parity harness and its tests          |
 | `make parity-rust`   | runs the Rust stellar-xdr parity harness and its tests (needs Rust 1.93.0)                            |
 | `make differential`  | regenerates the differential fuzzing corpus and checks it with the Go, JS and Python implementations  |
@@ -559,17 +560,28 @@ contractID := h.deployAndFundFixture(t, deployer, wasmBytes, constructorArgs...)
 ## Running the e2e tests
 
 ```sh
-cd e2e/contracts && stellar contract build
-cd ../.. && go test -tags e2e -v ./e2e/...
+make e2e          # against testnet
+make e2e-local    # against a local quickstart container, no testnet and no friendbot
 ```
 
-They run against testnet by default; `SOROAUTH_RPC_URL` points them elsewhere.
-Accounts are generated at runtime and funded by friendbot. A full run takes
-about three minutes.
+Both build the fixture wasm with `stellar-cli` first. `make e2e` is the
+equivalent of `cd e2e/contracts && stellar contract build` and then
+`go test -tags e2e -v ./e2e/...`; `make e2e-local` additionally needs Docker,
+starts a `stellar/quickstart` container for the run, deploys the native asset
+contract a fresh local network lacks, and removes the container afterwards.
 
-`e2e/RESULTS.md` is written by a run and only when every scenario ran. Commit it
-only from a real, complete run — it is what the README's testnet claims point
-at.
+The suite is not compiled for one network. `SOROAUTH_RPC_URL` selects the RPC
+and everything else — the passphrase, the protocol version, the friendbot
+endpoint — is read from the network the RPC reports. Funding uses friendbot by
+default, or a transfer from an already-funded account when
+`SOROAUTH_FUNDER_SEED` is set; the local target sets it to the standalone root
+account so a local run never calls friendbot. A full testnet run takes about
+three minutes.
+
+`e2e/RESULTS.md` is written by a **testnet** run and only when every scenario
+ran. Commit it only from a real, complete testnet run — it is what the README's
+testnet claims point at. Any other network, a local quickstart included, writes
+`e2e/RESULTS.local.md`, so a local run cannot overwrite the committed evidence.
 
 See [e2e/README.md](e2e/README.md) for what each scenario proves and why the two
 rejection scenarios exist. For a step-by-step guide to building and deploying
@@ -581,10 +593,13 @@ the fixture contracts manually from a clean checkout, see
 A GitHub Actions workflow (`.github/workflows/e2e.yml`) runs the e2e suite on a
 schedule (every 6 hours) and on `workflow_dispatch`. This catches testnet
 resets, protocol upgrades, and RPC changes that would otherwise break the suite
-silently between releases.
+silently between releases. A second job in the same workflow runs the same
+scenarios against a local quickstart container, which needs neither testnet nor
+friendbot and proves the suite is network-agnostic rather than testnet-shaped.
 
 - The workflow **does not** commit `e2e/RESULTS.md` automatically — that remains
-  a deliberate act from a verified local run.
+  a deliberate act from a verified local run. The local job prints
+  `e2e/RESULTS.local.md` to its log instead of committing it.
 - On scheduled failure, the workflow opens a GitHub issue with the run details
   so the regression is visible without digging through logs.
 - To reproduce a scheduled failure locally:
@@ -592,6 +607,7 @@ silently between releases.
   export SOROAUTH_RPC_URL=https://soroban-testnet.stellar.org
   go test -tags e2e -v ./e2e/...
   ```
+  or, without testnet, `make e2e-local`.
 
 ## Parity reports
 
