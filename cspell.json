@@ -518,6 +518,7 @@
     "testdata/gen",
     "testdata/vectors",
     "e2e/RESULTS.md",
+    "e2e/RESULTS.local.md",
     "e2e/contracts/target",
     "wasm/dist",
     "bin",
