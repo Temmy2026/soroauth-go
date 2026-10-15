@@ -212,6 +212,9 @@ base64
 base32
 base58
 base64url
+buildvcs
+GOFLAGS
+libc
 hex
 octet
 octets

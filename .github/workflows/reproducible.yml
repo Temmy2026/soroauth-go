@@ -1,0 +1,97 @@
+# Rebuild a published release from its tag and compare the binaries against the
+# checksums attached to that release.
+#
+# Provenance says who built an artifact; this is the other half — it lets anyone
+# check *what* was built, by rebuilding it from the tagged source and diffing.
+# The release workflow (.github/workflows/release.yml) builds the binaries with
+# the deterministic command in scripts/reproduce.sh and attaches a checksums.txt;
+# this workflow runs the same script against the published tag and fails if a
+# single byte differs.
+#
+# It is deliberately not a pull-request check: it needs a release that already
+# exists, so it runs when one is published, weekly to catch a replaced asset,
+# and on demand against any tag. See docs/reproducibility.md.
+name: reproducible
+
+on:
+  release:
+    types: [published]
+  schedule:
+    # Weekly, Monday 09:00 UTC.
+    - cron: '0 9 * * 1'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to verify (defaults to the latest release)'
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  reproduce:
+    name: rebuild and compare checksums
+    runs-on: ubuntu-latest
+    steps:
+      # Resolve which release to check. On a `release` event, or a manual run
+      # with no input, that is the latest release, which is the one just
+      # published.
+      - name: resolve the release tag
+        id: tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          tag="${INPUT_TAG:-}"
+          if [ -z "$tag" ]; then
+            tag="$(gh release view --repo "${GITHUB_REPOSITORY}" --json tagName --jq .tagName)"
+          fi
+          if [ -z "$tag" ]; then
+            echo "could not resolve a release tag" >&2
+            exit 1
+          fi
+          echo "verifying ${tag}"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+
+      # Full history so the tag and its commit are present.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ steps.tag.outputs.tag }}
+          fetch-depth: 0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version: '1.25.4'
+
+      # The exact command a third party is told to run. It derives the build
+      # metadata from the ref, so no wall-clock value enters the bytes.
+      - name: rebuild every target with the documented command
+        run: |
+          set -euo pipefail
+          bash scripts/reproduce.sh "${{ steps.tag.outputs.tag }}" "$PWD/rebuilt"
+
+      - name: download the published checksums
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p published
+          gh release download "${{ steps.tag.outputs.tag }}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --pattern 'checksums.txt' \
+            --dir published
+
+      - name: compare
+        run: |
+          set -euo pipefail
+          if ! diff -u \
+            <(sort -k2 published/checksums.txt) \
+            <(sort -k2 rebuilt/checksums.txt); then
+            echo >&2
+            echo "The published binaries differ from a clean rebuild of the tag." >&2
+            echo "See docs/reproducibility.md. A difference means either the source" >&2
+            echo "no longer builds the published bytes, or a non-determinism source" >&2
+            echo "was reintroduced." >&2
+            exit 1
+          fi
+          echo "every target reproduced byte-for-byte from ${{ steps.tag.outputs.tag }}"

@@ -11,7 +11,7 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/soroauth ./cmd/soroauth
+RUN CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w" -o /out/soroauth ./cmd/soroauth
 
 # distroless/static has no shell, no package manager, and nothing beyond the
 # CA certificates and the binary itself — nothing to attack besides
