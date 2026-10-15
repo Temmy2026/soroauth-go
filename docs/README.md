@@ -50,6 +50,7 @@ the architecture note and the guides is the one they need. The repository root
 | [fuzzing](fuzzing.md)                                                | How the fuzz targets run continuously, and how a crash becomes a committed regression seed. |
 | [parity](parity.md)                                                  | What agreement across implementations does and does not establish.                          |
 | [differential fuzzing](../testdata/differential/README.md)           | How random entries are checked across the Go, JS and Python implementations.                |
+| [reproducibility](reproducibility.md)                                | How a released binary is rebuilt byte-for-byte, and what that does and does not cover.      |
 | [frozen divergences](../testdata/differential/regressions/README.md) | The regression corpus of cases the implementations once disagreed on.                       |
 | [Python parity](../testdata/parity-python/README.md)                 | How the vectors are recomputed with the Python `stellar-sdk`.                               |
 | [Rust parity](../testdata/parity-rust/README.md)                     | How the vectors are recomputed with the `stellar-xdr` crate the host itself uses.           |

@@ -467,11 +467,18 @@ that runs on version tags (`v*`). It:
 1. Regenerates the golden vectors from the pinned JS SDK and fails if they drift
    (the same check that runs on every push).
 2. Builds the CLI for `linux/amd64`, `linux/arm64`, `darwin/amd64`,
-   `darwin/arm64`, `windows/amd64`.
+   `darwin/arm64`, `windows/amd64`, with the deterministic flags that let the
+   release be rebuilt byte-for-byte (see
+   [docs/reproducibility.md](docs/reproducibility.md)).
 3. Creates a GitHub Release whose notes are extracted from `CHANGELOG.md` for
    the tagged version.
-4. Attaches the built binaries and the generated man page (`soroauth.1`) to the
-   release.
+4. Attaches the built binaries (named `soroauth_<os>_<arch>`), a `checksums.txt`
+   covering them, and the generated man page (`soroauth.1`) to the release.
+
+The `reproducible` workflow (`.github/workflows/reproducible.yml`) rebuilds each
+published tag with the documented command and fails if a binary does not match
+its published checksum, so a release that cannot be reproduced is caught rather
+than trusted.
 
 To cut a release:
 
