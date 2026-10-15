@@ -48,6 +48,10 @@ jobs:
         env:
           SOROAUTH_RPC_URL: ${{ secrets.SOROAUTH_RPC_URL }}
         run: |
+          # pipefail so a failing `go test` fails the step. Without it the
+          # pipeline's exit status is tee's, which is always 0, and every
+          # scenario could fail while the job reported success.
+          set -o pipefail
           go test -tags e2e -v ./e2e/... 2>&1 | tee /tmp/e2e.out
 
       # e2e/RESULTS.md is written by a real run and only when every
@@ -63,3 +67,38 @@ jobs:
             --title "e2e regression detected on testnet" \
             --body "The scheduled e2e run failed. This is likely caused by a testnet reset, protocol upgrade, or RPC change.\n\nCheck the workflow run: https://github.com/soroauth/soroauth-go/actions/runs/${{github.run_id}}" \
             --label area:testing --label complexity:high || true
+
+  # The same scenarios against a local standalone network, which needs neither
+  # testnet nor friendbot. It proves the suite really is network-agnostic rather
+  # than testnet-shaped: the passphrase, protocol version and funding path all
+  # come from the network it is pointed at. It also catches a break when testnet
+  # itself is unhealthy, which is the point of running it here.
+  e2e-local:
+    name: e2e scenarios on a local network
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          check-latest: true
+
+      - name: install stellar-cli
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/stellar/stellar-cli/main/install.sh | sh
+          stellar --version
+
+      - name: run e2e scenarios against a local quickstart
+        run: make e2e-local
+
+      # The protocol version the local network reported is in this file; it is
+      # printed rather than committed so a reviewer can see it without a run
+      # writing into the repository.
+      - name: show the local results
+        if: always()
+        run: |
+          if [ -f e2e/RESULTS.local.md ]; then
+            echo '::group::e2e/RESULTS.local.md'
+            cat e2e/RESULTS.local.md
+            echo '::endgroup::'
+          fi
