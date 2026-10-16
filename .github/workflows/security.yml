@@ -72,11 +72,10 @@ jobs:
   # action posts the diff summary on the pull request so a reviewer sees what
   # changed, not only that it failed.
   #
-  # continue-on-error: true because Dependency Review requires the Dependency
-  # Graph feature to be enabled on the repository (Settings → Security & analysis).
-  # Some organizations/repos don't have this enabled (especially forks), and
-  # the action fails with a confusing "not supported on this repository" error
-  # rather than gracefully skipping. We still want CodeQL to gate the PR.
+  # This job only runs if the repository has Dependency Graph enabled. It uses
+  # a pre-check via the GitHub API to detect support and skips gracefully if
+  # unavailable, so the check run shows "success" rather than a misleading
+  # "failure" on repos without GHAS/Dependency Graph.
   dependency-review:
     name: dependency review
     if: github.event_name == 'pull_request'
@@ -85,10 +84,31 @@ jobs:
       contents: read
       # Required to post the dependency-diff summary on the pull request.
       pull-requests: write
-    continue-on-error: true
     steps:
+      - name: Check Dependency Graph support
+        id: dep-graph-check
+        uses: actions/github-script@60a4d20082b1c4c3e8e5d0a015a5e9d6a7b8c9d0 # v7
+        with:
+          script: |
+            const { data: repo } = await github.rest.repos.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo
+            });
+            // Dependency Graph is part of security_and_analysis
+            const hasDepGraph = repo.security_and_analysis?.dependency_graph?.status === 'enabled';
+            return hasDepGraph;
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: actions/dependency-review-action@cc4f6536e38d1126c5e3b0683d469a14f23bfea4 # v3
+
+      - name: Run dependency review
+        if: steps.dep-graph-check.outputs.result == 'true'
+        uses: actions/dependency-review-action@cc4f6536e38d1126c5e3b0683d469a14f23bfea4 # v3
         with:
           fail-on-severity: high
           comment-summary-in-pr: on-failure
+
+      - name: Skip dependency review (not supported)
+        if: steps.dep-graph-check.outputs.result != 'true'
+        run: |
+          echo "Dependency Graph not enabled on this repository; skipping dependency review."
+          echo "To enable: Settings → Security & analysis → Dependency graph"
