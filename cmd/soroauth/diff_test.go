@@ -173,12 +173,12 @@ func TestDiffUsageErrors(t *testing.T) {
 		{
 			name: "missing before",
 			args: []string{"diff", "--after", v.UnsignedEntryXDR},
-			want: "--before is required",
+			want: "--before or --before-entries is required",
 		},
 		{
 			name: "missing after",
 			args: []string{"diff", "--before", v.UnsignedEntryXDR},
-			want: "--after is required",
+			want: "--after or --after-entries is required",
 		},
 		{
 			name: "both from stdin",

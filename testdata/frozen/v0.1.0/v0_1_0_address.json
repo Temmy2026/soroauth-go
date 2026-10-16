@@ -1,0 +1,20 @@
+{
+  "name": "v0_1_0_address",
+  "source_release": "v0.1.0",
+  "network_passphrase": "Test SDF Network ; September 2015",
+  "valid_until_ledger": 1234567,
+  "signed_entry_xdr": "AAAAAQAAAAAAAAAA0sAuCCQJ2bOvgzRuBH24+4rWvz3Po/7RydJBaJYxU8UAAAAAAAAAKgAS1ocAAAAQAAAAAQAAAAEAAAARAAAAAQAAAAIAAAAPAAAACnB1YmxpY19rZXkAAAAAAA0AAAAg0sAuCCQJ2bOvgzRuBH24+4rWvz3Po/7RydJBaJYxU8UAAAAPAAAACXNpZ25hdHVyZQAAAAAAAA0AAABAgG+RNWeKoJ3QiTo4n/hWAyE5iWgq5Ti8tD1oKVz+oeGi3jWLWUHUTkOadWlY21fkqkwCaT8aEDyDfrq6LUOeCQAAAAAAAAABnRZdQ3xab227Ga8LQpf3QKiuqeAqLaY/lyJJ1webr6wAAAAIdHJhbnNmZXIAAAABAAAABgAAAAAAAABkAAAAAQAAAAAAAAAB/dMxQ9JN+SYVe4siT3fha1aW+jUM6zrGDHOvR3k7clYAAAAHYXBwcm92ZQAAAAAAAAAAAA==",
+  "preimage_xdr": "AAAACc7gMC1ZhE0yvcqRXIID3USzP7t+3BkFHqN6vt8o7NRyAAAAAAAAACoAEtaHAAAAAAAAAAGdFl1DfFpvbbsZrwtCl/dAqK6p4Cotpj+XIknXB5uvrAAAAAh0cmFuc2ZlcgAAAAEAAAAGAAAAAAAAAGQAAAABAAAAAAAAAAH90zFD0k35JhV7iyJPd+FrVpb6NQzrOsYMc69HeTtyVgAAAAdhcHByb3ZlAAAAAAAAAAAA",
+  "payload_hex": "b841d7bd5f48d1a08dd7197a4f09d75e650b5a9690ed0d41393c12eb1d0d8635",
+  "inspect": {
+    "credential_type": "address",
+    "address_bound": false,
+    "address": "GDJMALQIEQE5TM5PQM2G4BD5XD5YVVV7HXH2H7WRZHJEC2EWGFJ4K3TS",
+    "nonce": 42,
+    "valid_until_ledger": 1234567,
+    "top_level_signed": true,
+    "root_contract": "CCORMXKDPRNG63N3DGXQWQUX65AKRLVJ4AVC3JR7S4RETVYHTOX2ZVHO",
+    "root_function": "transfer",
+    "sub_invocations": 1
+  }
+}

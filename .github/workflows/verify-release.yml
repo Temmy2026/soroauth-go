@@ -1,0 +1,207 @@
+# Verifies the supply-chain evidence on published releases: the keyless
+# Sigstore bundles on the binaries, the build provenance attestations, the SBOM
+# attestations, and the container image digest. It runs on every published
+# release, weekly on a schedule (a certificate chain, a workflow file or an
+# identity policy can change without a push here), and on demand.
+#
+# The `self_test` input is the pull-request-evidence path: it builds a
+# throwaway binary from the checked-out ref, attests and keyless-signs it
+# exactly as the release workflow does, then runs scripts/verify-release.sh
+# against this repository's own attestations and requires a tampered copy to
+# be rejected by both verification paths. It derives the identity policy from
+# github.workflow_ref, so it works unchanged on a fork or on a branch.
+name: verify-release
+
+on:
+  release:
+    types: [published]
+  schedule:
+    # Weekly, Monday 06:00 UTC. This is the only check that runs against
+    # already-published assets rather than assets built by the run itself.
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+    inputs:
+      self_test:
+        description: 'Build, attest and keyless-sign a throwaway binary from this ref, verify it, and prove a tampered copy is rejected. For pull-request evidence.'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: verify the latest signed release
+    if: github.event_name != 'workflow_dispatch' || inputs.self_test != true
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      # Read back the releases' attestations from this repository.
+      attestations: read
+      packages: read
+      # The scheduled failure opens or comments on an issue, like e2e.yml.
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      # Releases published before the attestation scheme exist and carry no
+      # bundles; those are skipped cleanly rather than failed, because there is
+      # nothing about them to verify.
+      - name: find the newest release that carries provenance bundles
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          has_bundles='[.assets[].name] | any(endswith(".sigstore.json"))'
+          candidates=''
+          if [ "${GITHUB_EVENT_NAME}" = "release" ] && [ -n "$EVENT_TAG" ]; then
+            candidates="$EVENT_TAG"
+          else
+            candidates="$(gh release list \
+              --repo "$GITHUB_REPOSITORY" \
+              --exclude-drafts --exclude-pre-releases --limit 30 \
+              --json tagName --jq '.[].tagName')" ||
+              { echo "::error::cannot list releases of ${GITHUB_REPOSITORY}" >&2; exit 1; }
+          fi
+          while read -r tag; do
+            [ -n "$tag" ] || continue
+            bundled="$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" \
+              --json assets --jq "$has_bundles")" ||
+              { echo "::error::cannot inspect release ${tag}" >&2; exit 1; }
+            if [ "$bundled" = "true" ]; then
+              echo "release to verify: ${tag}"
+              echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "skip ${tag}: it has no .sigstore.json assets"
+          done <<< "$candidates"
+          echo "skip=1" >> "$GITHUB_OUTPUT"
+          echo "::notice::no release carries provenance bundles yet; releases published before the attestation scheme are skipped"
+      # cosign verifies the image through ghcr.io; the image is public, but
+      # logging in keeps verification identical to a consumer who has pulled it.
+      - name: log in to ghcr.io
+        if: steps.release.outputs.skip != '1'
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        if: steps.release.outputs.skip != '1'
+      - name: download the release assets
+        if: steps.release.outputs.skip != '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          gh release download "${{ steps.release.outputs.tag }}" \
+            --repo "$GITHUB_REPOSITORY" --dir release-assets
+          ls -l release-assets
+      - name: verify signatures, attestations and SBOMs, and reject a tampered binary
+        if: steps.release.outputs.skip != '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          scripts/verify-release.sh \
+            --repo "$GITHUB_REPOSITORY" \
+            --dir release-assets \
+            --tamper-demo
+      - name: report a scheduled failure
+        if: failure() && github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          title="release verification failed"
+          {
+            echo "The weekly release verification failed on run"
+            echo "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}."
+            echo
+            echo "Something about already-published release assets no longer verifies:"
+            echo "a Sigstore bundle, a provenance attestation, an SBOM attestation,"
+            echo "or the container image digest the release names."
+            echo
+            echo "## Reproduce locally"
+            echo
+            echo '```sh'
+            echo 'scripts/verify-release.sh --tag <tag> --tamper-demo'
+            echo '```'
+          } > issue.md
+          existing=$(gh issue list --search "$title in:title" --state open \
+            --json number,title | jq --arg t "$title" '[.[] | select(.title == $t) | .number]')
+          count=$(echo "$existing" | jq 'length')
+          if [ "$count" -gt 0 ]; then
+            echo "an open issue already covers this; commenting with the new run"
+            echo "$existing" | jq -r '.[0]' | xargs -I{} gh issue comment {} --body-file issue.md
+          else
+            gh issue create --title "$title" --body-file issue.md \
+              --label area:tooling --label complexity:high
+          fi
+
+  # The self-test is how a pull request shows the gate works: nothing is
+  # published, the binary is throwaway, and both the passing and the rejecting
+  # path are exercised for real on the run's own OIDC identity.
+  self-test:
+    name: self-test on a throwaway binary
+    if: github.event_name == 'workflow_dispatch' && inputs.self_test == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          check-latest: true
+      - name: build a throwaway binary
+        run: |
+          set -euo pipefail
+          mkdir -p self-test-dist
+          go build -o self-test-dist/soroauth-linux-amd64 ./cmd/soroauth
+      - name: generate an SPDX-JSON SBOM for it
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        with:
+          file: self-test-dist/soroauth-linux-amd64
+          format: spdx-json
+          output-file: self-test-dist/soroauth-linux-amd64.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+      - name: attest its build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: self-test-dist/soroauth-linux-amd64
+      - name: attest its SBOM
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: self-test-dist/soroauth-linux-amd64
+          sbom-path: self-test-dist/soroauth-linux-amd64.spdx.json
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - name: keyless-sign it
+        run: |
+          set -euo pipefail
+          cosign sign-blob --yes \
+            --bundle self-test-dist/soroauth-linux-amd64.sigstore.json \
+            self-test-dist/soroauth-linux-amd64
+      - name: verify it, then prove a tampered copy is rejected
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # github.workflow_ref is <owner>/<repo>/.github/workflows/<file>@<ref>
+          # and the certificate identity is that path behind
+          # https://github.com/, so both are derived from the run rather than
+          # hardcoded to upstream: the same job works on a fork or a branch.
+          signer_workflow="${GITHUB_WORKFLOW_REF%@*}"
+          scripts/verify-release.sh \
+            --repo "${GITHUB_REPOSITORY}" \
+            --signer-workflow "${signer_workflow}" \
+            --identity-regexp "^https://github.com/${signer_workflow}@" \
+            --dir self-test-dist \
+            --tamper-demo

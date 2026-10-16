@@ -10,45 +10,40 @@ GO   ?= go
 NPM  ?= npm
 NODE ?= node
 
+# The toolchain go.mod pins. Coverage statement counts move between Go minor
+# versions (go1.27 counts the server package ~4.5 points lower than go1.25.4),
+# so `make coverage` runs its measurement under the pinned toolchain to agree
+# with the numbers recorded in testdata/coverage/floors.json.
+COVER_TOOLCHAIN := $(shell awk '/^toolchain /{print $$2}' go.mod)
+
 # The binary `make build` writes, relative to the repository root.
 BIN_DIR := bin
 BIN     := $(BIN_DIR)/soroauth
 
 # Build metadata the CLI reports with --version. The release workflow overrides
-# all three with the tag, the commit and the commit's date (see
+# all three with the tag, the commit and the run's date (see
 # .github/workflows/release.yml); a local `make build` reports the checkout it
 # was built from, which is what makes a bug report against a locally built
 # binary actionable. Each falls back to a self-describing value rather than an
 # empty string, so a source tarball with no git metadata still builds.
-#
-# BUILD_DATE is the commit's committer date, not the wall clock: the same
-# commit always stamps the same timestamp, which is what makes two builds of the
-# same tree byte-identical. See docs/reproducibility.md.
 VERSION    ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT     ?= $(shell git rev-parse HEAD 2>/dev/null || echo unknown)
-BUILD_DATE ?= $(shell git show -s --format=%cI $(COMMIT) 2>/dev/null || echo unknown)
-SOURCE_DATE_EPOCH ?= $(shell git show -s --format=%ct $(COMMIT) 2>/dev/null || echo 0)
-export SOURCE_DATE_EPOCH
+BUILD_DATE ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 LDFLAGS    := -s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(BUILD_DATE)
-
-# -trimpath drops the build machine's paths and -buildvcs=false drops the VCS
-# revision and dirty bit Go stamps by default. Both are the difference between
-# a binary that is a function of the source and one that is a function of the
-# checkout it was built in; the release workflow passes the same pair.
-GOBUILDFLAGS := -trimpath -buildvcs=false
 
 # How long `make fuzz` runs each target. The continuous workflow
 # (.github/workflows/fuzz.yml) runs the same targets for much longer; this is
 # the local smoke that proves a target starts and its seeds pass.
 FUZZTIME ?= 30s
 
-# The host port `make e2e-local` publishes the quickstart container's RPC on.
-# It is one variable so the RPC URL the tests are pointed at and the port the
-# container is published on cannot disagree.
-E2E_LOCAL_PORT ?= 8000
-E2E_LOCAL_RPC  ?= http://localhost:$(E2E_LOCAL_PORT)/rpc
+# How long `make soak` signs batches. The scheduled `soak` job in
+# .github/workflows/fuzz.yml runs the same test for ten minutes; this default
+# is the local smoke that proves the loop starts and every round's assertions
+# hold. The race detector stays on either way: docs/soak.md explains why the
+# soak is not a replacement for it.
+SOAKTIME ?= 2m
 
-.PHONY: all help fmt vet test fuzz build server man md-check md-format vectors vectors-check demo-check diagrams diagrams-check e2e e2e-local clean parity parity-rust differential wasm wasm-check wasm-budget ts-test reproducible-check
+.PHONY: all help fmt vet test coverage fuzz soak build server man md-check md-format vectors vectors-check demo-check diagrams diagrams-check e2e clean parity parity-rust differential wasm wasm-check wasm-budget ts-test
 
 # The default target runs exactly what a pull request has to pass before the
 # golden-vector drift check, which needs Node and the network.
@@ -60,7 +55,9 @@ help:
 	@echo "  make fmt           fail if any Go file is not gofmt-clean"
 	@echo "  make vet           go vet ./..."
 	@echo "  make test          go test ./..."
+	@echo "  make coverage      measure coverage and enforce the per-package floors"
 	@echo "  make fuzz          run every fuzz target for \$$(FUZZTIME) each (default 30s)"
+	@echo "  make soak          soak the batch signing path for \$$(SOAKTIME) (default 2m, race detector on)"
 	@echo "  make md-check      fail if any Markdown file is not prettier-clean"
 	@echo "  make md-format     format every Markdown file in place"
 	@echo "  make build         build the CLI to $(BIN)"
@@ -72,15 +69,13 @@ help:
 	@echo "  make diagrams-check fail if the committed diagram SVGs have drifted"
 	@echo "  make demo-check    check the browser demo's logic against the pinned SDK"
 	@echo "  make e2e           build the test contract and run the live testnet suite"
-	@echo "  make e2e-local     run the same suite against a local quickstart container"
 	@echo "  make parity        run the Python stellar-sdk parity harness"
 	@echo "  make parity-rust   run the Rust stellar-xdr parity harness"
 	@echo "  make differential  regenerate the differential corpus and check it with JS and Python"
 	@echo "  make wasm          build the js/wasm signing core into wasm/dist/"
-	@echo "  make wasm-check    build the wasm core and prove it matches the golden vectors"
+	@echo "  make wasm-check    build the wasm core and prove it matches the golden, differential and fuzz corpora"
 	@echo "  make wasm-budget   build the wasm core and fail if it is over its size ceiling"
 	@echo "  make ts-test       typecheck and test the TypeScript wrapper package"
-	@echo "  make reproducible-check build every release target twice and diff the checksums"
 	@echo "  make clean         remove $(BIN_DIR)/ and build output"
 
 # gofmt -l prints the files that need formatting; this target turns that output
@@ -96,6 +91,19 @@ fmt:
 vet:
 	$(GO) vet ./...
 
+# Per-package coverage floors (testdata/coverage/floors.json). One global floor
+# let a well-covered package subsidise a thin one: the signing path was
+# averaged together with the CLI and the examples, so a regression in the path
+# that produces signatures could hide behind the rest. scripts/checkcov
+# compares each package's statement coverage against its own floor, and the
+# signing-path floors stay strictly above the 60% global floor this replaced.
+# Coverage is not correctness: it says which lines ran, not that the result is
+# right; the mutation-testing work is the stronger check.
+coverage:
+	GOTOOLCHAIN=$(COVER_TOOLCHAIN) $(GO) test -coverprofile=coverage.out -covermode=atomic ./...
+	GOTOOLCHAIN=$(COVER_TOOLCHAIN) $(GO) list -f '{{.ImportPath}}' ./... > packages.txt
+	GOTOOLCHAIN=$(COVER_TOOLCHAIN) $(GO) run ./scripts/checkcov coverage.out testdata/coverage/floors.json packages.txt
+
 # A local smoke over every fuzz target: each one must start, run its seed
 # corpus and fuzz for FUZZTIME without finding a crash. The continuous
 # workflow (.github/workflows/fuzz.yml) runs the same targets for much longer
@@ -109,6 +117,19 @@ fuzz:
 	$(GO) test -run '^$$' -fuzz FuzzDecodeAuthorizationEntry -fuzztime $(FUZZTIME) .
 	$(GO) test -run '^$$' -fuzz FuzzCopyRoundTrip -fuzztime $(FUZZTIME) ./internal/xdrcopy
 
+# The long-running counterpart to the race detector: soak_test.go's
+# TestSoakBatchSigning signs batches of the golden vectors from several
+# goroutines, round after round, and after every round asserts the bytes still
+# match the vectors and that goroutines and live heap returned to the baseline
+# taken after the warm-up. It is behind the soak build tag, so no other target
+# compiles it, and it is deliberately not a replacement for `go test -race`
+# or TestCopyConcurrentReuse, only the same properties watched for much longer.
+# The scheduled job in .github/workflows/fuzz.yml runs it for 10 minutes; the
+# reported run and the measured tolerances are in docs/soak.md.
+# Override the budget per run: `make soak SOAKTIME=10m`.
+soak:
+	$(GO) test -race -tags soak -run TestSoakBatchSigning -soak-duration $(SOAKTIME) -timeout 30m .
+
 # Markdown is normalised so a prose diff stays about content rather than about
 # re-wrapping. The formatter, its version and its config are committed
 # (package.json, .prettierrc.json, .prettierignore); run `npm ci` at the
@@ -120,14 +141,14 @@ md-format:
 	npx prettier --write "**/*.md"
 
 build:
-	$(GO) build $(GOBUILDFLAGS) -ldflags "$(LDFLAGS)" -o $(BIN) ./cmd/soroauth
+	$(GO) build -ldflags "$(LDFLAGS)" -o $(BIN) ./cmd/soroauth
 
 # The verification service (docs/verification-service.md). It is a separate
 # binary because serving verification over a network is a deployment choice;
 # the published container image stays CLI-only. The version stamp feeds
 # /healthz and `soroauth-server version`.
 server:
-	$(GO) build $(GOBUILDFLAGS) -ldflags "-s -w -X main.Version=$(VERSION)" -o $(BIN_DIR)/soroauth-server ./server
+	$(GO) build -ldflags "-s -w -X main.Version=$(VERSION)" -o $(BIN_DIR)/soroauth-server ./server
 
 # The man page is generated by the binary itself, from the same command/flag
 # table the completion scripts come from, so packaging never ships a page that
@@ -138,27 +159,11 @@ man: build
 	$(BIN) man --out $(BIN_DIR)/soroauth.1
 	@echo "wrote $(BIN_DIR)/soroauth.1"
 
-# Proves the documented build command is reproducible on this machine: it
-# builds every release target twice from the same commit with
-# scripts/reproduce.sh and fails if the two checksum lists differ. This is the
-# local half of what .github/workflows/reproducible.yml checks against a real
-# release. See docs/reproducibility.md.
-reproducible-check:
-	rm -rf $(BIN_DIR)/reproducible-a $(BIN_DIR)/reproducible-b
-	bash scripts/reproduce.sh HEAD $(BIN_DIR)/reproducible-a
-	bash scripts/reproduce.sh HEAD $(BIN_DIR)/reproducible-b
-	@if ! diff -u $(BIN_DIR)/reproducible-a/checksums.txt $(BIN_DIR)/reproducible-b/checksums.txt; then \
-		echo; \
-		echo "Two builds of the same commit produced different bytes."; \
-		echo "See docs/reproducibility.md for the sources of non-determinism"; \
-		echo "this command neutralises, and check which one a change reintroduced."; \
-		exit 1; \
-	fi
-	@echo "every target reproduced byte-for-byte"
-
 # Golden vectors are generated, committed artefacts. Regenerating them is safe;
 # `vectors-check` is the one that proves the committed files match, which is
-# what CI runs.
+# what CI runs. It also diffs testdata/frozen, the hand-committed cross-version
+# set, so a `make vectors` that somehow wrote there fails the check instead of
+# silently rewriting evidence that must not move.
 #
 # Two generators, two reference implementations: gen.mjs writes the
 # authorization-entry vectors against @stellar/stellar-sdk, and gen-passkey.mjs
@@ -168,11 +173,13 @@ vectors:
 	cd testdata/gen && $(NPM) ci && $(NODE) gen.mjs && $(NODE) gen-passkey.mjs
 
 vectors-check: vectors
-	@if ! git diff --exit-code -- testdata/vectors; then \
+	@if ! git diff --exit-code -- testdata/vectors testdata/frozen; then \
 		echo; \
-		echo "The committed golden vectors differ from freshly generated ones."; \
+		echo "The committed golden vectors differ from freshly generated ones, or"; \
+		echo "regeneration touched the frozen cross-version set under testdata/frozen."; \
 		echo "Never edit a vector by hand. Commit the regenerated files with the"; \
-		echo "generator change, or investigate why the reference output moved."; \
+		echo "generator change, or investigate why the reference output moved. The"; \
+		echo "frozen set is never regenerated; see testdata/frozen/README.md."; \
 		exit 1; \
 	fi
 
@@ -192,25 +199,6 @@ e2e:
 		exit 1; \
 	}
 	cd e2e/contracts && stellar contract build
-	$(GO) test -tags e2e -v ./e2e/...
-
-# e2e-local runs the same suite against a local quickstart container.
-# It builds the test contract, starts the container, deploys the native
-# asset, runs the suite, and stops the container on exit.
-e2e-local:
-	@command -v stellar >/dev/null 2>&1 || { \
-		echo "stellar-cli 28.0.0 is required to build the e2e test contract"; \
-		exit 1; \
-	}
-	cd e2e/contracts && stellar contract build
-	@set -eu; \
-	export SOROAUTH_QUICKSTART_PORT=$(E2E_LOCAL_PORT); \
-	./e2e/quickstart.sh start; \
-	trap './e2e/quickstart.sh stop' EXIT; \
-	seed="$$(./e2e/quickstart.sh root-seed)"; \
-	./e2e/quickstart.sh deploy-native-asset "$$seed"; \
-	SOROAUTH_RPC_URL=$(E2E_LOCAL_RPC) \
-	SOROAUTH_FUNDER_SEED="$$seed" \
 	$(GO) test -tags e2e -v ./e2e/...
 
 # The Python parity harness recomputes every vector's preimage and payload with
@@ -282,8 +270,9 @@ diagrams-check:
 wasm:
 	./wasm/build.sh
 
-# Builds the module and then replays every golden vector through it, asserting
-# byte-identical output.
+# Builds the module and then replays the golden vectors, the differential corpus
+# (and its frozen regressions) and the fuzz seed corpus through it, asserting
+# byte-identical output against the native build.
 wasm-check: wasm
 	$(NODE) wasm/parity.mjs
 

@@ -12,6 +12,13 @@
 # resumes where the last one left off. Nothing is auto-committed: a crash
 # reproducer becomes a committed regression seed through an ordinary pull
 # request, like any other change.
+#
+# The same workflow carries the scheduled batch signing soak (`soak` below):
+# the golden vectors signed continuously, under the race detector, with the
+# goroutine count and live heap asserted against a warm-up baseline after
+# every round. It is the steady-state counterpart to the searches above —
+# see docs/soak.md for a reported run and the measurements behind the
+# tolerances.
 name: continuous-fuzz
 
 on:
@@ -145,6 +152,75 @@ jobs:
           count=$(echo "$existing" | jq 'length')
           if [ "$count" -gt 0 ]; then
             echo "An open issue already covers ${target}; commenting with the new run."
+            echo "$existing" | jq -r '.[0]' | xargs -I{} gh issue comment {} --body-file issue.md
+          else
+            gh issue create --title "$title" --body-file issue.md
+          fi
+
+  # The batch signing soak: the committed golden vectors signed continuously
+  # from several goroutines for ten minutes, with the race detector on, and
+  # after every round an assertion that the bytes still match the vectors and
+  # that the goroutine count and live heap settled back to the baseline taken
+  # after the warm-up. The fuzz jobs above search for new inputs; this one
+  # watches the steady state the service actually runs in, which a single
+  # `go test -race` run is too short to say anything about. docs/soak.md
+  # reports a real run and the measurements the tolerances come from.
+  soak:
+    name: soak TestSoakBatchSigning
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          check-latest: true
+
+      # -timeout must stay above -soak-duration: Go's default test timeout is
+      # 10m, and without a larger one a ten-minute soak would be killed just
+      # before it finishes and had no chance to print its final round.
+      - name: soak the batch signing path
+        run: |
+          set -o pipefail
+          go test -race -tags soak -run TestSoakBatchSigning \
+            -soak-duration 10m -timeout 20m . 2>&1 | tee soak.log
+
+      # A failed soak is a finding about the library, not a flake: the round
+      # lines in the log name the first round in which the bytes, the
+      # goroutines or the heap went wrong. Report it the way the fuzz jobs do
+      # rather than only failing the run.
+      - name: report a finding
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          title='[soak] TestSoakBatchSigning failed'
+
+          {
+            echo "The batch signing soak failed on run"
+            echo "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}."
+            echo
+            echo '```'
+            tail -30 soak.log || true
+            echo '```'
+            echo
+            echo '## Reproduce locally'
+            echo
+            echo '```sh'
+            echo 'make soak SOAKTIME=10m'
+            echo '# or, directly:'
+            echo "go test -race -tags soak -run TestSoakBatchSigning -soak-duration 10m -timeout 20m ."
+            echo '```'
+            echo
+            echo 'docs/soak.md has what each round asserts and how the tolerances were measured.'
+          } > issue.md
+
+          existing=$(gh issue list --search "$title in:title" --state open \
+            --json number,title --jq --arg t "$title" '[.[] | select(.title == $t) | .number]')
+          count=$(echo "$existing" | jq 'length')
+          if [ "$count" -gt 0 ]; then
+            echo "An open issue already covers the soak; commenting with the new run."
             echo "$existing" | jq -r '.[0]' | xargs -I{} gh issue comment {} --body-file issue.md
           else
             gh issue create --title "$title" --body-file issue.md

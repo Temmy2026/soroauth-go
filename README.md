@@ -22,6 +22,7 @@ credential arms: legacy `SOROBAN_CREDENTIALS_ADDRESS`, CAP-71
 - [Install](#install)
 - [Common tasks](#common-tasks)
 - [Container image](#container-image)
+- [Verifying a release](#verifying-a-release)
 - [CLI](#cli)
 - [Quickstart](#quickstart)
 - [The two-pass simulation requirement](#the-two-pass-simulation-requirement)
@@ -67,7 +68,6 @@ make build        # build the CLI to bin/soroauth
 make vectors      # regenerate testdata/vectors from the pinned JS SDK
 make vectors-check # regenerate, then fail if the committed vectors changed
 make e2e          # build the test contract and run the live testnet suite
-make e2e-local    # run the same suite against a local quickstart container
 make wasm-budget  # build the wasm core and fail if it is over its size ceiling
 ```
 
@@ -96,7 +96,143 @@ the host, a sidecar with the same namespace), the same as it would be for any
 other process — treat container secret injection with the same care you would
 give a plain environment variable anywhere else. The image is built from
 `Dockerfile` at the repository root by `.github/workflows/release.yml` on every
-`v*` tag push.
+`v*` tag push, and that same release attests and signs the pushed image digest;
+see [Verifying a release](#verifying-a-release).
+
+## Verifying a release
+
+Every release binary and the container image are signed and carry build
+provenance, so a consumer can tell a real release from a convincing copy. The
+provenance is GitHub's own, the signatures are keyless Sigstore, and the
+commands below are the ones the workflows run against every published release —
+not documentation written once and never executed.
+
+For a `vX.Y.Z` tag the release attaches, per platform (`linux/amd64`,
+`linux/arm64`, `darwin/amd64`, `darwin/arm64`, `windows/amd64`):
+
+- `soroauth-<os>-<arch>` (`.exe` on Windows) — the binary;
+- `soroauth-<os>-<arch>[.exe].spdx.json` — its SPDX SBOM, scanned from that
+  binary with syft;
+- `soroauth-<os>-<arch>[.exe].sigstore.json` — a detached Sigstore bundle: the
+  signature plus everything needed to check it (certificate, chain,
+  transparency-log entry);
+- `soroauth-image-digest.txt` — the digest of the image the release attested and
+  signed.
+
+Nothing here needs a key from either side. The signing certificate is issued
+against the release workflow's OIDC identity from GitHub Actions, so there is no
+long-lived key in CI to steal or rotate and no public key for a consumer to
+distribute or pin — the identity policy _is_ the verification.
+
+### Verifying a downloaded binary
+
+```sh
+# Once: cosign and the GitHub CLI. Install cosign from
+# https://github.com/sigstore/cosign/releases, or:
+go install github.com/sigstore/cosign/v3/cmd/cosign@latest
+gh auth login   # gh attestation verify reads GitHub's API
+
+tag=v0.2.0
+gh release download "$tag" --repo soroauth/soroauth-go --dir release-assets
+cd release-assets
+
+# 1. The Sigstore bundle: this binary was signed by the release workflow, and
+#    the certificate names the workflow at a tag under this repository.
+cosign verify-blob \
+  --bundle soroauth-linux-amd64.sigstore.json \
+  --certificate-identity-regexp '^https://github.com/soroauth/soroauth-go/.github/workflows/release.yml@refs/tags/' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  soroauth-linux-amd64
+
+# 2. Build provenance: GitHub's own record of which workflow, commit and
+#    runner produced these bytes. No key on your side either.
+gh attestation verify soroauth-linux-amd64 \
+  --repo soroauth/soroauth-go \
+  --signer-workflow soroauth/soroauth-go/.github/workflows/release.yml
+
+# 3. The SBOM attestation, and that the attached SBOM file is the document
+#    that was attested: both sides are canonicalised, then compared.
+gh attestation verify soroauth-linux-amd64 \
+  --repo soroauth/soroauth-go \
+  --signer-workflow soroauth/soroauth-go/.github/workflows/release.yml \
+  --predicate-type https://spdx.dev/Document/v2.3 \
+  --format json --jq '.[0].verificationResult.statement.predicate' > /tmp/attested-sbom.json
+jq -S . /tmp/attested-sbom.json > /tmp/attested-sbom.sorted.json
+jq -S . soroauth-linux-amd64.spdx.json > /tmp/local-sbom.sorted.json
+diff /tmp/attested-sbom.sorted.json /tmp/local-sbom.sorted.json
+```
+
+From a checkout of this repository, `scripts/verify-release.sh` runs all of the
+above over a whole release — every binary, every SBOM and the image digest — and
+`--tamper-demo` copies one verified binary, flips a single byte and requires
+both checks to reject the copy, so a green run means the gate bites:
+
+```sh
+scripts/verify-release.sh --tag "$tag" --tamper-demo
+```
+
+### Verifying the container image
+
+```sh
+digest="$(cat soroauth-image-digest.txt)"
+policy='^https://github.com/soroauth/soroauth-go/.github/workflows/release.yml@refs/tags/'
+
+cosign verify \
+  --certificate-identity-regexp "$policy" \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  "ghcr.io/soroauth/soroauth-go@${digest}"
+
+gh attestation verify "oci://ghcr.io/soroauth/soroauth-go@${digest}" \
+  --repo soroauth/soroauth-go \
+  --signer-workflow soroauth/soroauth-go/.github/workflows/release.yml
+```
+
+Both commands address the digest, never `:latest` or `:$tag`: a tag can be moved
+to different bytes between pulls, a digest cannot. The digest names a
+single-platform manifest today; when the image becomes multi-arch it names a
+manifest list instead and the commands above are unchanged.
+
+### What a pass proves, and what it does not
+
+A pass proves, for the bytes you hold:
+
+- the signature in the bundle was made with a certificate whose subject is
+  `https://github.com/soroauth/soroauth-go/.github/workflows/release.yml@refs/tags/<tag>`
+  and whose issuer is GitHub Actions' OIDC service, and that the signature is in
+  Sigstore's public transparency log — so the signer is this repository's
+  release workflow on that tag, and the bytes are the ones it signed;
+- GitHub's attestation store holds a signed statement, written by a workflow run
+  in `soroauth/soroauth-go`, binding the artifact's digest to the commit, the
+  workflow file and the runner that produced it;
+- for the image, the same two things about the digest the release names;
+- the SBOM attached to the release is the document that was attested — the bytes
+  are compared, not just the presence of an attestation.
+
+It does not prove:
+
+- that the code is correct or its dependencies benign. Provenance says where
+  bytes came from, not what they do; the audit status is in
+  [SECURITY.md](SECURITY.md);
+- SLSA Build L3, and nothing here should be quoted as such. Attestations minted
+  on a GitHub-hosted runner are non-forgeable from outside GitHub: a consumer
+  can tell that this repository's release workflow, on this commit, on a
+  GitHub-hosted runner produced the bytes. But the workflow is not
+  cryptographically isolated from the build the way L3 requires, and no
+  independent party has reproduced the build. It is real provenance; it is not a
+  level;
+- that the release is the newest one, or that the tag on GitHub still points at
+  the commit the attestation names. Pin the digest or the binary you verified
+  rather than re-resolving a tag later;
+- anything about releases published before this scheme: they carry no
+  `.sigstore.json` assets. `scripts/verify-release.sh` fails on them and says
+  why, and `.github/workflows/verify-release.yml` skips them with a message
+  instead of pretending they verified.
+
+The same commands run in CI: the `verify-release` job of
+`.github/workflows/release.yml` verifies the release it just published before
+the run can be green, and `.github/workflows/verify-release.yml` re-verifies the
+newest release that carries bundles every week, so a bundle that stops verifying
+fails a run instead of going unnoticed.
 
 ## CLI
 
@@ -149,6 +285,44 @@ SEED=SABC... ./soroauth sign \
 ./soroauth inspect --entry <base64> |
   jq -r '"\(.credential_type) \(.address) expires=\(.valid_until_ledger)"'
 ```
+
+### Batch mode — many entries in one run
+
+`inspect`, `verify` and `sign` take `--entries <file|->`, and `diff` takes
+`--before-entries`/`--after-entries`, so a list of entries costs one process
+instead of one process per line. The input is one base64 authorization entry per
+line (`-` reads stdin; blank lines are skipped). An envelope is never a batch
+line, because one envelope carries several entries — select them first.
+
+Every result is labelled with its 1-based position, and one bad line never ends
+the run: `entry N:` on stdout for a result, `entry N: <why>` on stderr for a
+failure, and the exit code is the first failure's. With `--json` the report is a
+single array — `{"entry": N, "result": ...}` or `{"entry": N, "error": "..."}` —
+so it composes with `jq`:
+
+```sh
+# Inspect a list; one labelled report per entry
+./soroauth inspect --entries entries.b64
+
+# Verify a whole batch, then list only the entries that did not verify
+./soroauth verify --entries entries.b64 --network testnet --json |
+  jq -r '.[] | select(.result.verified != true) | .entry'
+
+# Sign a batch; the signed entries come back in input order
+SEED=SABC... ./soroauth sign --entries entries.b64 \
+  --valid-until 1234567 --network testnet --secret-env SEED --json |
+  jq -r '.[].result.signed_entry' > signed.b64
+
+# What changed across a batch? The two files are compared in order
+./soroauth diff --before-entries before.b64 --after-entries after.b64
+```
+
+`sign` is all-or-nothing, the same rule the library's `AuthorizeAll` enforces:
+if any line cannot be signed, no signed output is written at all — the report is
+only the failures — because a half-signed batch must never read as a complete
+one. `diff` pairs the Nth non-blank lines of its two files and refuses files
+whose entry counts differ. No batch path echoes an entry into output or logs: a
+caller sees the position, never the bytes.
 
 ### Tree — render a delegate tree
 
@@ -468,18 +642,18 @@ that runs on version tags (`v*`). It:
 1. Regenerates the golden vectors from the pinned JS SDK and fails if they drift
    (the same check that runs on every push).
 2. Builds the CLI for `linux/amd64`, `linux/arm64`, `darwin/amd64`,
-   `darwin/arm64`, `windows/amd64`, with the deterministic flags that let the
-   release be rebuilt byte-for-byte (see
-   [docs/reproducibility.md](docs/reproducibility.md)).
-3. Creates a GitHub Release whose notes are extracted from `CHANGELOG.md` for
+   `darwin/arm64`, `windows/amd64`, scans an SPDX SBOM from each binary, attests
+   each binary's build provenance and SBOM, and keyless-signs each binary into a
+   detached Sigstore bundle.
+3. Builds and pushes the container image, attests and keyless-signs the pushed
+   digest, and records that digest for the release.
+4. Creates a GitHub Release whose notes are extracted from `CHANGELOG.md` for
    the tagged version.
-4. Attaches the built binaries (named `soroauth_<os>_<arch>`), a `checksums.txt`
-   covering them, and the generated man page (`soroauth.1`) to the release.
-
-The `reproducible` workflow (`.github/workflows/reproducible.yml`) rebuilds each
-published tag with the documented command and fails if a binary does not match
-its published checksum, so a release that cannot be reproduced is caught rather
-than trusted.
+5. Attaches the built binaries, an SBOM and a Sigstore bundle per binary, the
+   generated man page (`soroauth.1`) and the image digest, then verifies the
+   published release with `scripts/verify-release.sh` — including the tamper
+   demo that proves the checks reject modified bytes. See
+   [Verifying a release](#verifying-a-release).
 
 To cut a release:
 
@@ -491,7 +665,9 @@ git push origin v0.2.0
 
 The workflow will refuse to publish if the golden drift check fails, so a
 release is only created when the library is provably byte-identical to the
-reference implementation.
+reference implementation. It is only green when the release it just published
+verifies, so a release whose signatures or attestations are broken stays red
+rather than being announced.
 
 ## Quickstart
 
@@ -946,8 +1122,7 @@ For questions and where to send each kind of report, see
 The Markdown in this repository is link-checked by the
 [`links` workflow](.github/workflows/links.yml) and spell-checked by the
 [`spellcheck` workflow](.github/workflows/spellcheck.yml). Neither runs on pull
-requests, which carry five checks — the three from `ci.yml` plus `codeql` and
-`dependency review` from [`security.yml`](.github/workflows/security.yml): both
+requests, which carry only the three checks the branch ruleset requires: both
 run on push to `main`, on a weekly schedule, and on demand. A broken internal
 link or a typo is therefore caught one commit after it lands rather than one
 review before. External links are only reported, never failed, since a page

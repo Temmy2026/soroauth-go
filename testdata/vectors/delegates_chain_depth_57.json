@@ -1,0 +1,361 @@
+{
+  "schema_version": 1,
+  "name": "delegates_chain_depth_57",
+  "sdk": "@stellar/stellar-sdk@17.1.0",
+  "network_passphrase": "Test SDF Network ; September 2015",
+  "valid_until_ledger": 1234567,
+  "pre_wrap_entry_xdr": "AAAAAgAAAAAAAAAAt7bYKS3hKDB7Aw8ykLPfkH7kJtcX2OWQMp2pPDOof8oRIhD0femBFQAAAAAAAAAQAAAAAQAAAAAAAAAAAAAAATRrZDx31oeiVF0aSLeGFRrK5f+qDrWvYPXG86PwH6rRAAAACHRyYW5zZmVyAAAADQAAAAEAAAAAAAAAAQAAAAMAAAAHAAAABP////kAAAAF//////////8AAAAG/9////////8AAAAPAAAACHRyYW5zZmVyAAAADgAAABFhIHN0cmluZyBhcmd1bWVudAAAAAAAAA0AAAAIc29yb2F1dGgAAAASAAAAAAAAAADPqMFVnXxt0Bnz2j/PUq2wC1ksRV8F0C/Wn7FszQMp5AAAABIAAAABiYTtffRvjkxhpdNokUurCdK7WuhA3mCRriGP1/FA4bIAAAAQAAAAAQAAAAIAAAADAAAAAQAAAAMAAAACAAAAEQAAAAEAAAABAAAADwAAAAZhbW91bnQAAAAAAAr//////////wAAAAAAAAAqAAAAAA==",
+  "unsigned_entry_xdr": "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",
+  "delegates": [
+    {
+      "label": "soroauth-vector-delegate-chain-1",
+      "address": "GBJ2OWQZD4LL26I7QYMGPB7IW54ZJB6YKJ4E6Y4FWSIG5HZAYDWIBOBS",
+      "nested": [
+        {
+          "label": "soroauth-vector-delegate-chain-2",
+          "address": "GDKYPYXVSQYJDWFFETVVNDIM7W2VJLIA6GVWGKGVF7FJ6WBNLNZE6PTV",
+          "nested": [
+            {
+              "label": "soroauth-vector-delegate-chain-3",
+              "address": "GBDUZKLC7XM7BIRM2ZZF6HCVOSOUCNRK4IRBN3WURALBXQ5KIIGLTG5U",
+              "nested": [
+                {
+                  "label": "soroauth-vector-delegate-chain-4",
+                  "address": "GAONDDADZQVDZWA7TCT3MBMPOXRDMMOEHXGQWGIV2UK5SM23KG6BOASF",
+                  "nested": [
+                    {
+                      "label": "soroauth-vector-delegate-chain-5",
+                      "address": "GCQGRELQBJLGGDWO5XRI2VBKR5BHJAPAWMJ4OE7YRXG3N7OS45FTGZBQ",
+                      "nested": [
+                        {
+                          "label": "soroauth-vector-delegate-chain-6",
+                          "address": "GCEHKCEPCF5OY6SMBQIZXX3KFRDEZTEUOBMMVLGY2Q5CQ47CIT2RC3U5",
+                          "nested": [
+                            {
+                              "label": "soroauth-vector-delegate-chain-7",
+                              "address": "GCC7HTNA3Q5OE5X5Z3HBYXYTVYEUPDKNKZC64W2HQDCARHQ3ZEQSNCTJ",
+                              "nested": [
+                                {
+                                  "label": "soroauth-vector-delegate-chain-8",
+                                  "address": "GAF4XQISGJBXYUPD5CXQL2UIYA26CFGZ73HNTYH2GIYJPO6MHVO4ZJBX",
+                                  "nested": [
+                                    {
+                                      "label": "soroauth-vector-delegate-chain-9",
+                                      "address": "GATJDA7R4VDV47G6EZ5HN2KBDW5ONURVDFFDFCFKAVMUQT56UEKSTHW4",
+                                      "nested": [
+                                        {
+                                          "label": "soroauth-vector-delegate-chain-10",
+                                          "address": "GBEKRUCAQTUZQUSWZJQVEXNGIDLPAQ3JQZGAHFZEIS5ETG35CMLRC5CU",
+                                          "nested": [
+                                            {
+                                              "label": "soroauth-vector-delegate-chain-11",
+                                              "address": "GD3DTCVINWMOT6XM2XAGUU2SSNCTNQLYNEFN4DZJP7HD4AFCSI7ZM2ZD",
+                                              "nested": [
+                                                {
+                                                  "label": "soroauth-vector-delegate-chain-12",
+                                                  "address": "GAHPDCFBMI35L7RY4X4TRX3C7JZB5WOZDTDIZAKBO3XED6E4S2MWXQHG",
+                                                  "nested": [
+                                                    {
+                                                      "label": "soroauth-vector-delegate-chain-13",
+                                                      "address": "GAT7RKJ5TPRX2WY3ZSLWXWR5JBLJENK5QGEDOIACAKJIMZQ6CC2PDS2B",
+                                                      "nested": [
+                                                        {
+                                                          "label": "soroauth-vector-delegate-chain-14",
+                                                          "address": "GBIO35QXPVBLRPWLNBLINDD4PHI3THO3LYRJ5RUQT4JSWSUUYZLAT46H",
+                                                          "nested": [
+                                                            {
+                                                              "label": "soroauth-vector-delegate-chain-15",
+                                                              "address": "GCO645O2ZYAZSQESVFUIJ63LHIBRQD3DYY36XGWSU7BAI347DEKNTGP2",
+                                                              "nested": [
+                                                                {
+                                                                  "label": "soroauth-vector-delegate-chain-16",
+                                                                  "address": "GBD4Q6MRHYEQL5YPBZ6KW4RLTD66AROHJ723PW5A5LUKCJZQEXUNPNRB",
+                                                                  "nested": [
+                                                                    {
+                                                                      "label": "soroauth-vector-delegate-chain-17",
+                                                                      "address": "GDAEDJNQ2T2EYLOK23DP6L527PYPO6PSUQOAYG4SVYAIFQIT7XCO2THM",
+                                                                      "nested": [
+                                                                        {
+                                                                          "label": "soroauth-vector-delegate-chain-18",
+                                                                          "address": "GCODQEEV7J2DLIIS2UHYCATQQPZGA3R22AG75RRX5NDY7RATP64MKVP3",
+                                                                          "nested": [
+                                                                            {
+                                                                              "label": "soroauth-vector-delegate-chain-19",
+                                                                              "address": "GAUPF22CNWYLYMIWDIJSFX3V4YOSWOWKBOFXYVSMCMHBDT5SF4IB6ZUX",
+                                                                              "nested": [
+                                                                                {
+                                                                                  "label": "soroauth-vector-delegate-chain-20",
+                                                                                  "address": "GCJNNCYKLU6LVZEXZ7AFXN5QYBTSSB242AR3YCVEJAO7KLBLG7DRV7EZ",
+                                                                                  "nested": [
+                                                                                    {
+                                                                                      "label": "soroauth-vector-delegate-chain-21",
+                                                                                      "address": "GCDV6UR2M7GUYTKZYYUXWM3OAWTPWUE5NGD3P7N6CUVRAPE5EL7P6WPP",
+                                                                                      "nested": [
+                                                                                        {
+                                                                                          "label": "soroauth-vector-delegate-chain-22",
+                                                                                          "address": "GB373H7STIAYPA6HLBSDHMRGH5JQBWYVRDGGPEPUXABUIHVZMILZNH4E",
+                                                                                          "nested": [
+                                                                                            {
+                                                                                              "label": "soroauth-vector-delegate-chain-23",
+                                                                                              "address": "GA42UHCAJQZWBIHYIWQ7D2CU2PT6ASLTJTG5J7Q3Y3WCQGDNL4LEP2LZ",
+                                                                                              "nested": [
+                                                                                                {
+                                                                                                  "label": "soroauth-vector-delegate-chain-24",
+                                                                                                  "address": "GAYLZKTQ7HA36MJJXBPDYRYUR7YEVRJ4EECXV27HFMRUOAVLOBFVACG4",
+                                                                                                  "nested": [
+                                                                                                    {
+                                                                                                      "label": "soroauth-vector-delegate-chain-25",
+                                                                                                      "address": "GC6YRP633NVC5GCM3HIWLNEWL6WVBTHP6E62ACZ2OIC7HCLA26WD6FXK",
+                                                                                                      "nested": [
+                                                                                                        {
+                                                                                                          "label": "soroauth-vector-delegate-chain-26",
+                                                                                                          "address": "GCNRBQ2FTT7SFHDVEFRLKIB4OSK4GV6TMNU47BK2ZUKHQOR4Y6ZQ5WZT",
+                                                                                                          "nested": [
+                                                                                                            {
+                                                                                                              "label": "soroauth-vector-delegate-chain-27",
+                                                                                                              "address": "GDUJDIKKEZLQ226BR5I7FK7PXO5YKQIJ22EF5NI72Y33GHAHUGP65B6D",
+                                                                                                              "nested": [
+                                                                                                                {
+                                                                                                                  "label": "soroauth-vector-delegate-chain-28",
+                                                                                                                  "address": "GBXO4JFEKZBC25J3QS2CZPJWUCXSKJ3JRVMB5BGGB2D643S53FRWAYR4",
+                                                                                                                  "nested": [
+                                                                                                                    {
+                                                                                                                      "label": "soroauth-vector-delegate-chain-29",
+                                                                                                                      "address": "GDWUQZF7GFUH6F47MICP5ZG2CJFQRCSFW45R2XZQDOUT3U5VLEONQPDE",
+                                                                                                                      "nested": [
+                                                                                                                        {
+                                                                                                                          "label": "soroauth-vector-delegate-chain-30",
+                                                                                                                          "address": "GAECHP5UGAY2SRWFWA4NTBEYXCAXGNICPTTVRWX6G4H6PXRNQWES7BUB",
+                                                                                                                          "nested": [
+                                                                                                                            {
+                                                                                                                              "label": "soroauth-vector-delegate-chain-31",
+                                                                                                                              "address": "GBARNDWVNAM4CVVBJB7X2DC4DRRIC2H6VDO7XOCDAD47Z3W5PG6QOE5C",
+                                                                                                                              "nested": [
+                                                                                                                                {
+                                                                                                                                  "label": "soroauth-vector-delegate-chain-32",
+                                                                                                                                  "address": "GAFB2D6RRB5QRC27BX7CV6RHK6K2JRESPWOUF6ZTRJTYGNT4R33YGC52",
+                                                                                                                                  "nested": [
+                                                                                                                                    {
+                                                                                                                                      "label": "soroauth-vector-delegate-chain-33",
+                                                                                                                                      "address": "GATCO5WJOMB5ZV7ILF6SKCCIDV6RTQKQYDJ3MO5YQ7GJT7Y6CRLAHGZ4",
+                                                                                                                                      "nested": [
+                                                                                                                                        {
+                                                                                                                                          "label": "soroauth-vector-delegate-chain-34",
+                                                                                                                                          "address": "GBAOHTHAVHRY453INOFPDTMWW2XAQ3ZCIQX7QQ3ZKMUWFRAOAXBMLJK6",
+                                                                                                                                          "nested": [
+                                                                                                                                            {
+                                                                                                                                              "label": "soroauth-vector-delegate-chain-35",
+                                                                                                                                              "address": "GD7CAZYVGT4ICXMLQOPYYNYHKID5VGTCXHUC37HPHXZGZ4U52FOFVOJZ",
+                                                                                                                                              "nested": [
+                                                                                                                                                {
+                                                                                                                                                  "label": "soroauth-vector-delegate-chain-36",
+                                                                                                                                                  "address": "GDNDXRJJDHNTV4MZUXCC5D2T6WRGLIU5WZFDRD7LW7WWPG7JMLVTYVCS",
+                                                                                                                                                  "nested": [
+                                                                                                                                                    {
+                                                                                                                                                      "label": "soroauth-vector-delegate-chain-37",
+                                                                                                                                                      "address": "GC65AULYPGOLZ4SJMXQYIE7LRQ45Y5BQIQD7E5MXTHV3Y3FVPF5HKBZ5",
+                                                                                                                                                      "nested": [
+                                                                                                                                                        {
+                                                                                                                                                          "label": "soroauth-vector-delegate-chain-38",
+                                                                                                                                                          "address": "GDAJQJUWX3B7VTS3MVCYWOF7JY7OAWPV43MZOQBNWO3K4IHFNQL4UGVT",
+                                                                                                                                                          "nested": [
+                                                                                                                                                            {
+                                                                                                                                                              "label": "soroauth-vector-delegate-chain-39",
+                                                                                                                                                              "address": "GB6ITHAD2WTG6UUZ5KF75DQJG2OZT2OPHSQFC5BOXBVSJXLCNIEHV6YA",
+                                                                                                                                                              "nested": [
+                                                                                                                                                                {
+                                                                                                                                                                  "label": "soroauth-vector-delegate-chain-40",
+                                                                                                                                                                  "address": "GB7RYP3AXBPIFAHL4TBPVGCB5FQD4FXHNK4G5FYNRGXHJZNQZ5PZ54EX",
+                                                                                                                                                                  "nested": [
+                                                                                                                                                                    {
+                                                                                                                                                                      "label": "soroauth-vector-delegate-chain-41",
+                                                                                                                                                                      "address": "GAAON3AMUTWI6EUTQ2ZL2OWIU2TT7LDVRERBFVVVIBA24BFQHUQLNOQ6",
+                                                                                                                                                                      "nested": [
+                                                                                                                                                                        {
+                                                                                                                                                                          "label": "soroauth-vector-delegate-chain-42",
+                                                                                                                                                                          "address": "GBYXJPW74BAD4JW4IMS7UTNUKMHF76ZL6SXXNOZCV5SHSXYSIBFQM77C",
+                                                                                                                                                                          "nested": [
+                                                                                                                                                                            {
+                                                                                                                                                                              "label": "soroauth-vector-delegate-chain-43",
+                                                                                                                                                                              "address": "GB2576IFHMPFBOH7MGOGGCXL7R5A24GAYLRYHK4UNVNE4CJNO2X5OXVN",
+                                                                                                                                                                              "nested": [
+                                                                                                                                                                                {
+                                                                                                                                                                                  "label": "soroauth-vector-delegate-chain-44",
+                                                                                                                                                                                  "address": "GA2E23EUQHUUCYB44S4725F57BVKYPFWX6Z7HRVGIRMHUFSNSKB3VPVV",
+                                                                                                                                                                                  "nested": [
+                                                                                                                                                                                    {
+                                                                                                                                                                                      "label": "soroauth-vector-delegate-chain-45",
+                                                                                                                                                                                      "address": "GDZKWXJYR7OFBEEMVL3Q5WOJP4FBG6UQQUBE33E2VPGFMZJ5DJIIGNKQ",
+                                                                                                                                                                                      "nested": [
+                                                                                                                                                                                        {
+                                                                                                                                                                                          "label": "soroauth-vector-delegate-chain-46",
+                                                                                                                                                                                          "address": "GC4TDKLFT7K7UJ53GQZZ76KLTBB6WWQNGEHO7XM7QCW22AJUISJOMRAW",
+                                                                                                                                                                                          "nested": [
+                                                                                                                                                                                            {
+                                                                                                                                                                                              "label": "soroauth-vector-delegate-chain-47",
+                                                                                                                                                                                              "address": "GA55B6QRCXOUWOHTWDD62ODOZRKPOTVE6K5NJ4GTSXWAU5OOPS6KKUCD",
+                                                                                                                                                                                              "nested": [
+                                                                                                                                                                                                {
+                                                                                                                                                                                                  "label": "soroauth-vector-delegate-chain-48",
+                                                                                                                                                                                                  "address": "GBMQZG4FXM2RTGPR2TFDVZSO7YZCPT3WHL4UBIYUKLF3W5CFTM633EBV",
+                                                                                                                                                                                                  "nested": [
+                                                                                                                                                                                                    {
+                                                                                                                                                                                                      "label": "soroauth-vector-delegate-chain-49",
+                                                                                                                                                                                                      "address": "GDWKFO6HWJMH4UT2PYGHE2OUGBE23OYAMKZFQ3U546QOJ4DG5RPNZ64Z",
+                                                                                                                                                                                                      "nested": [
+                                                                                                                                                                                                        {
+                                                                                                                                                                                                          "label": "soroauth-vector-delegate-chain-50",
+                                                                                                                                                                                                          "address": "GDNESNTFUI45MDJ4VFIXO4TU4R5PRPXDYFZWM7CRNY5TY5VUPABHEIAU",
+                                                                                                                                                                                                          "nested": [
+                                                                                                                                                                                                            {
+                                                                                                                                                                                                              "label": "soroauth-vector-delegate-chain-51",
+                                                                                                                                                                                                              "address": "GDPFRMEJRSK2763I43DU3Z6AGJYIGEIE5DEXWVII6DOZKNCXQZBE4OOJ",
+                                                                                                                                                                                                              "nested": [
+                                                                                                                                                                                                                {
+                                                                                                                                                                                                                  "label": "soroauth-vector-delegate-chain-52",
+                                                                                                                                                                                                                  "address": "GAHNLDIBC2Y4RKKCII2IBHLTH5MY4OEYVMZU3CMHG6EW5LIFPUWA62DQ",
+                                                                                                                                                                                                                  "nested": [
+                                                                                                                                                                                                                    {
+                                                                                                                                                                                                                      "label": "soroauth-vector-delegate-chain-53",
+                                                                                                                                                                                                                      "address": "GAK3YXECPC3VXP54GV7BV4IWETOFYIVXE4XERV5NX2ND4RY47WQZPYHH",
+                                                                                                                                                                                                                      "nested": [
+                                                                                                                                                                                                                        {
+                                                                                                                                                                                                                          "label": "soroauth-vector-delegate-chain-54",
+                                                                                                                                                                                                                          "address": "GAFUXZZUI2FP3HZWTD3YNPBGQ36JA4A3IQTMXJEF4Z7U5U7MHX7UWYPV",
+                                                                                                                                                                                                                          "nested": [
+                                                                                                                                                                                                                            {
+                                                                                                                                                                                                                              "label": "soroauth-vector-delegate-chain-55",
+                                                                                                                                                                                                                              "address": "GCAYSKGKJP3GMQWYSIPCDGMLZ7ULHQURFLUWGS4P34M4F5IU2YIINTVO",
+                                                                                                                                                                                                                              "nested": [
+                                                                                                                                                                                                                                {
+                                                                                                                                                                                                                                  "label": "soroauth-vector-delegate-chain-56",
+                                                                                                                                                                                                                                  "address": "GCJDEIBY52M3FWPYMVADTALS3Q3WLXXLMRKMLYMO2ZJO4RXC4O7SWGVI",
+                                                                                                                                                                                                                                  "nested": [
+                                                                                                                                                                                                                                    {
+                                                                                                                                                                                                                                      "label": "soroauth-vector-delegate-chain-57",
+                                                                                                                                                                                                                                      "address": "GD6GWRTIYLDK3WRKY7RUUXCCF7BQ7XUIWU2DPZBWFOO7MMNA7DOTPAKW",
+                                                                                                                                                                                                                                      "nested": []
+                                                                                                                                                                                                                                    }
+                                                                                                                                                                                                                                  ]
+                                                                                                                                                                                                                                }
+                                                                                                                                                                                                                              ]
+                                                                                                                                                                                                                            }
+                                                                                                                                                                                                                          ]
+                                                                                                                                                                                                                        }
+                                                                                                                                                                                                                      ]
+                                                                                                                                                                                                                    }
+                                                                                                                                                                                                                  ]
+                                                                                                                                                                                                                }
+                                                                                                                                                                                                              ]
+                                                                                                                                                                                                            }
+                                                                                                                                                                                                          ]
+                                                                                                                                                                                                        }
+                                                                                                                                                                                                      ]
+                                                                                                                                                                                                    }
+                                                                                                                                                                                                  ]
+                                                                                                                                                                                                }
+                                                                                                                                                                                              ]
+                                                                                                                                                                                            }
+                                                                                                                                                                                          ]
+                                                                                                                                                                                        }
+                                                                                                                                                                                      ]
+                                                                                                                                                                                    }
+                                                                                                                                                                                  ]
+                                                                                                                                                                                }
+                                                                                                                                                                              ]
+                                                                                                                                                                            }
+                                                                                                                                                                          ]
+                                                                                                                                                                        }
+                                                                                                                                                                      ]
+                                                                                                                                                                    }
+                                                                                                                                                                  ]
+                                                                                                                                                                }
+                                                                                                                                                              ]
+                                                                                                                                                            }
+                                                                                                                                                          ]
+                                                                                                                                                        }
+                                                                                                                                                      ]
+                                                                                                                                                    }
+                                                                                                                                                  ]
+                                                                                                                                                }
+                                                                                                                                              ]
+                                                                                                                                            }
+                                                                                                                                          ]
+                                                                                                                                        }
+                                                                                                                                      ]
+                                                                                                                                    }
+                                                                                                                                  ]
+                                                                                                                                }
+                                                                                                                              ]
+                                                                                                                            }
+                                                                                                                          ]
+                                                                                                                        }
+                                                                                                                      ]
+                                                                                                                    }
+                                                                                                                  ]
+                                                                                                                }
+                                                                                                              ]
+                                                                                                            }
+                                                                                                          ]
+                                                                                                        }
+                                                                                                      ]
+                                                                                                    }
+                                                                                                  ]
+                                                                                                }
+                                                                                              ]
+                                                                                            }
+                                                                                          ]
+                                                                                        }
+                                                                                      ]
+                                                                                    }
+                                                                                  ]
+                                                                                }
+                                                                              ]
+                                                                            }
+                                                                          ]
+                                                                        }
+                                                                      ]
+                                                                    }
+                                                                  ]
+                                                                }
+                                                              ]
+                                                            }
+                                                          ]
+                                                        }
+                                                      ]
+                                                    }
+                                                  ]
+                                                }
+                                              ]
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "steps": [
+    {
+      "signer_label": "soroauth-vector-delegate-chain-57",
+      "for_address": "GD6GWRTIYLDK3WRKY7RUUXCCF7BQ7XUIWU2DPZBWFOO7MMNA7DOTPAKW"
+    }
+  ],
+  "preimage_xdr": "AAAACs7gMC1ZhE0yvcqRXIID3USzP7t+3BkFHqN6vt8o7NRyESIQ9H3pgRUAEtaHAAAAAAAAAAC3ttgpLeEoMHsDDzKQs9+QfuQm1xfY5ZAynak8M6h/ygAAAAAAAAABNGtkPHfWh6JUXRpIt4YVGsrl/6oOta9g9cbzo/AfqtEAAAAIdHJhbnNmZXIAAAANAAAAAQAAAAAAAAABAAAAAwAAAAcAAAAE////+QAAAAX//////////wAAAAb/3////////wAAAA8AAAAIdHJhbnNmZXIAAAAOAAAAEWEgc3RyaW5nIGFyZ3VtZW50AAAAAAAADQAAAAhzb3JvYXV0aAAAABIAAAAAAAAAAM+owVWdfG3QGfPaP89SrbALWSxFXwXQL9afsWzNAynkAAAAEgAAAAGJhO199G+OTGGl02iRS6sJ0rta6EDeYJGuIY/X8UDhsgAAABAAAAABAAAAAgAAAAMAAAABAAAAAwAAAAIAAAARAAAAAQAAAAEAAAAPAAAABmFtb3VudAAAAAAACv//////////AAAAAAAAACoAAAAA",
+  "payload_hex": "234c80770a3dcf2f628a1f0aabac82f180f0ec510461c419574307c255caea00",
+  "signed_entry_xdr": "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"
+}

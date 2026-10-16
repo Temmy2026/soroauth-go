@@ -228,7 +228,7 @@ func TestInspectRejects(t *testing.T) {
 		{
 			name:    "no entry",
 			args:    []string{"inspect"},
-			wantMsg: "--entry is required",
+			wantMsg: "--entry or --entries is required",
 		},
 		{
 			name:    "malformed entry",

@@ -36,9 +36,12 @@ the section that explains it.
 - [ ] **8. Commit in conventional form**, lowercase and imperative, one logical
       unit per commit, with the command you ran and its real output in the body
       — see [Commit format](#commit-format).
-- [ ] **9. Open the pull request** with `Closes #<n>`, what you changed, and how
-      you verified it. Two checks gate the merge: `vet and test` and
-      `golden vectors are reproducible`.
+- [ ] **9. Open the pull request** with one `Closes #<n>` line per issue it
+      resolves, what you changed, and how you verified it. A space-separated
+      list (`Closes #1 #2`) links only the first issue, and a closing line added
+      after the pull request is merged closes nothing, so write them before the
+      merge — otherwise an issue the work delivered stays open. Two checks gate
+      the merge: `vet and test` and `golden vectors are reproducible`.
 - [ ] **10. If the work turned out larger than its complexity label**, say so on
       the issue rather than absorbing it silently.
 
@@ -96,12 +99,13 @@ rather than across several documents. Run `make help` for the list.
 | `make fmt`           | fails if `gofmt -l .` reports anything                                                                |
 | `make vet`           | `go vet ./...`                                                                                        |
 | `make test`          | `go test ./...`                                                                                       |
+| `make coverage`      | measures test coverage and enforces the per-package floors in `testdata/coverage/floors.json`         |
+| `make soak`          | runs the long-running batch signing soak (race detector on, `SOAKTIME`, default 2m)                   |
 | `make build`         | builds the CLI to `bin/soroauth`                                                                      |
 | `make vectors`       | `cd testdata/gen && npm ci && node gen.mjs && node gen-passkey.mjs`                                   |
 | `make vectors-check` | regenerates the vectors and fails if the committed files changed                                      |
 | `make demo-check`    | checks the browser demo's logic against the pinned SDK (`node examples/browser-passkey/app.test.mjs`) |
 | `make e2e`           | builds the test contract with `stellar-cli` and runs `go test -tags e2e -v ./e2e/...`                 |
-| `make e2e-local`     | runs the same suite against a local quickstart container, funded by transfer rather than friendbot    |
 | `make parity`        | installs the pinned Python SDK into `.venv-parity` and runs the parity harness and its tests          |
 | `make parity-rust`   | runs the Rust stellar-xdr parity harness and its tests (needs Rust 1.93.0)                            |
 | `make differential`  | regenerates the differential fuzzing corpus and checks it with the Go, JS and Python implementations  |
@@ -146,7 +150,7 @@ the generated `e2e/RESULTS.md` and the committed vectors are excluded in
 CI runs all of these except `golangci-lint`, plus the golden-vector drift check
 and the contract build; the signing-path budget check runs on push to main (see
 [Benchmarks](#benchmarks)). `golangci-lint` is a local gate only, because pull
-requests are capped at five checks — see [Linting](#linting).
+requests are capped at three checks — see [Linting](#linting).
 
 The suite runs with `-race` because `internal/xdrcopy` shares encoder and
 decoder buffers across calls through `sync.Pool`; without the detector,
@@ -163,13 +167,9 @@ go test -fuzz=FuzzCopyRoundTrip -fuzztime=30s ./internal/xdrcopy
 ## Linting
 
 The gate is `.golangci.yml`, run locally. There is no `lint` job in
-`.github/workflows/ci.yml`: pull requests are capped at five checks, and the two
-that gate a merge are `vet and test` and `golden vectors are reproducible`. The
-cap was raised from three to five deliberately, for the `codeql` and
-`dependency review` jobs in
-[`.github/workflows/security.yml`](../.github/workflows/security.yml) — see
-[Static security analysis](security-analysis.md). Run the linter before you
-push; a reviewer may also run it.
+`.github/workflows/ci.yml`: pull requests are capped at three checks, and the
+two that gate a merge are `vet and test` and `golden vectors are reproducible`.
+Run the linter before you push; a reviewer may also run it.
 
 The config is deliberately small, and each linter in it is there because the
 project would actually fix what it reports; the file says which and why, and
@@ -243,7 +243,10 @@ by recomputing the vectors with other implementations:
   keeps being checked. **A divergence is a release blocker.**
 - **WebAssembly** (`wasm/parity.mjs`), against the wasm build of this same
   library. `make wasm-check` proves the browser build emits the same bytes as
-  the native one.
+  the native one, replaying the golden vectors, the differential corpus and its
+  frozen regressions, and the fuzz seed corpus against the native results
+  recorded in `testdata/wasm-parity/fuzz_expectations.json`. A seed the native
+  build refused must be refused by the wasm build too.
 
 The golden-vector harnesses are pinned: the Python SDK in `requirements.txt`,
 the JS SDK in `testdata/gen/package.json`, the differential verifier's JS SDK in
@@ -276,6 +279,17 @@ delegates, including a depth-8 delegate chain), `AuthorizeAll` over a 12-entry,
 4-signer batch, and `BenchmarkXDRCopy` — the deep copy in `internal/xdrcopy`
 that every entry-returning function performs, in its two on-path shapes (an
 authorization entry and a `HashIdPreimage`).
+
+Issue #365 split the gate into a **separate budget per operation and per
+credential arm**, so a regression in one arm cannot hide behind an improvement
+in another. `bench_arms_test.go` adds `BenchmarkVerifyEntry` and
+`BenchmarkDiffEntries` on each of the three arms, plus `BenchmarkDelegateTree`,
+which signs a delegate chain parameterised by node count (`nodes_1`, `nodes_4`,
+`nodes_16`, `nodes_63`) so super-linear growth in the recursive walk is visible.
+Each budget in `testdata/bench/budgets.json` may name the operation and arm it
+gates; `checkbench` prints that label on failure (`verification/delegates`)
+instead of an opaque Go benchmark path, and always prints the underlying
+benchmark name too.
 
 ```sh
 # Full suite with allocation stats
@@ -314,16 +328,18 @@ a renamed benchmark cannot silently drop out of the gate.
 
 ### Reproducing a budget failure locally
 
-A CI failure from the `bench` job is a `FAIL` line naming the benchmark and the
-budget it exceeded:
+A CI failure from the `bench` job is a `FAIL` line naming the operation and arm,
+the measured value, and the committed baseline, with the benchmark path on the
+following line:
 
 ```
-FAIL BenchmarkXDRCopy/entry   allocs/op 26 > budget 23; B/op 1632 > budget 1250
+FAIL verification/delegates        allocs/op 49 > baseline 10
+                                   benchmark BenchmarkVerifyEntry/delegates  (143581 ns/op)
 ```
 
 The two commands above, run from the repository root, reproduce it locally —
-`checkbench` exits 1 exactly as CI does. Once you can see _which_ benchmark
-regressed, find out _where_ the allocations come from:
+`checkbench` exits 1 exactly as CI does. Once you can see _which_ operation and
+arm regressed, find out _where_ the allocations come from:
 
 ```sh
 go test -run '^$' -bench BenchmarkXDRCopy -benchmem -count=1 -memprofile /tmp/mem.out .
@@ -446,6 +462,41 @@ itself: #294 changed only `ci-adapters.yml`, matched nothing in that workflow's
 own filter, and landed on `main` with its new job never having run once. If you
 add a workflow with a `paths:` filter, include its own path.
 
+### Release attestations and signatures
+
+Every release artifact is attested and signed, and the way to check that is a
+script rather than prose, so it can run in CI:
+
+- `scripts/verify-release.sh` verifies a downloaded release: every binary
+  against its `.sigstore.json` bundle (cosign, keyless) and its build provenance
+  attestation (`gh attestation verify`), every attached `.spdx.json` SBOM
+  against its SBOM attestation, and the container image digest the release
+  names. `--tamper-demo` flips one byte in a verified binary and requires
+  **both** paths to reject the copy, because a check nobody has seen reject
+  something is not evidence.
+- The `verify-release` job in `.github/workflows/release.yml` runs the script
+  against the release it just published, so a release whose assets do not verify
+  stays red instead of being announced.
+- `.github/workflows/verify-release.yml` re-runs it weekly against the newest
+  release that carries bundles (releases from before the scheme are skipped with
+  a message, not failed). Its `self_test` dispatch input builds a throwaway
+  binary from any ref and runs the same script plus the tamper demo on the run's
+  own OIDC identity — that is the evidence to attach to a pull request that
+  touches this scheme:
+
+  ```sh
+  gh workflow run verify-release.yml --repo <owner>/soroauth-go \
+    --ref <branch> -f self_test=true
+  ```
+
+Signing is keyless: the certificate comes from the workflow's GitHub OIDC
+identity, so no key exists in CI to leak or rotate. The flip side is that an
+action added to a job that can mint an OIDC token in these workflows runs with
+that identity and writes attestations under it, which is one more reason every
+new action must be SHA-pinned as described above — and why the verification
+commands in the README and in `scripts/verify-release.sh` pin the _identity_
+(this repository's workflow at a tag), not a key.
+
 ## Golden vectors
 
 `testdata/vectors/*.json` are generated, committed artefacts. They are the
@@ -509,6 +560,26 @@ pinned to, since a vector from another build is not evidence about this one.
 complete output, so the one-element vector `smart-account-kit` wraps its map in
 is pinned rather than assumed.
 
+### Frozen release entries
+
+The golden vectors move with the code: `make vectors` regenerates them in the
+same commit as any change. That is what they are for, and it is also why they
+cannot catch a wire-format regression in reading a stored, pre-signed entry —
+the vector and the reader change together.
+
+`testdata/frozen/<release>/` is the opposite: entries signed by an earlier
+release, committed once and **never regenerated**. `frozen_test.go` asserts the
+current code still decodes each to the same bytes, rebuilds the payload the
+release recorded, verifies the signature and inspects to the same structure. If
+one ever stops verifying, that is a wire-format regression and must stop the
+build, not be re-recorded.
+
+The set is kept out of `testdata/vectors/`, and `make vectors-check` (and CI)
+diffs it as well, so a generator that wrote there would fail the check. To add a
+set for a new release, follow
+[`testdata/frozen/README.md`](testdata/frozen/README.md) — check out the tag,
+run `scripts/frozengen` inside that worktree, and commit the output.
+
 ## Deterministic test keys
 
 Every key in the tests, examples, benchmarks and golden vectors is derived from
@@ -564,28 +635,17 @@ contractID := h.deployAndFundFixture(t, deployer, wasmBytes, constructorArgs...)
 ## Running the e2e tests
 
 ```sh
-make e2e          # against testnet
-make e2e-local    # against a local quickstart container, no testnet and no friendbot
+cd e2e/contracts && stellar contract build
+cd ../.. && go test -tags e2e -v ./e2e/...
 ```
 
-Both build the fixture wasm with `stellar-cli` first. `make e2e` is the
-equivalent of `cd e2e/contracts && stellar contract build` and then
-`go test -tags e2e -v ./e2e/...`; `make e2e-local` additionally needs Docker,
-starts a `stellar/quickstart` container for the run, deploys the native asset
-contract a fresh local network lacks, and removes the container afterwards.
+They run against testnet by default; `SOROAUTH_RPC_URL` points them elsewhere.
+Accounts are generated at runtime and funded by friendbot. A full run takes
+about three minutes.
 
-The suite is not compiled for one network. `SOROAUTH_RPC_URL` selects the RPC
-and everything else — the passphrase, the protocol version, the friendbot
-endpoint — is read from the network the RPC reports. Funding uses friendbot by
-default, or a transfer from an already-funded account when
-`SOROAUTH_FUNDER_SEED` is set; the local target sets it to the standalone root
-account so a local run never calls friendbot. A full testnet run takes about
-three minutes.
-
-`e2e/RESULTS.md` is written by a **testnet** run and only when every scenario
-ran. Commit it only from a real, complete testnet run — it is what the README's
-testnet claims point at. Any other network, a local quickstart included, writes
-`e2e/RESULTS.local.md`, so a local run cannot overwrite the committed evidence.
+`e2e/RESULTS.md` is written by a run and only when every scenario ran. Commit it
+only from a real, complete run — it is what the README's testnet claims point
+at.
 
 See [e2e/README.md](e2e/README.md) for what each scenario proves and why the two
 rejection scenarios exist. For a step-by-step guide to building and deploying
@@ -597,13 +657,10 @@ the fixture contracts manually from a clean checkout, see
 A GitHub Actions workflow (`.github/workflows/e2e.yml`) runs the e2e suite on a
 schedule (every 6 hours) and on `workflow_dispatch`. This catches testnet
 resets, protocol upgrades, and RPC changes that would otherwise break the suite
-silently between releases. A second job in the same workflow runs the same
-scenarios against a local quickstart container, which needs neither testnet nor
-friendbot and proves the suite is network-agnostic rather than testnet-shaped.
+silently between releases.
 
 - The workflow **does not** commit `e2e/RESULTS.md` automatically — that remains
-  a deliberate act from a verified local run. The local job prints
-  `e2e/RESULTS.local.md` to its log instead of committing it.
+  a deliberate act from a verified local run.
 - On scheduled failure, the workflow opens a GitHub issue with the run details
   so the regression is visible without digging through logs.
 - To reproduce a scheduled failure locally:
@@ -611,7 +668,6 @@ friendbot and proves the suite is network-agnostic rather than testnet-shaped.
   export SOROAUTH_RPC_URL=https://soroban-testnet.stellar.org
   go test -tags e2e -v ./e2e/...
   ```
-  or, without testnet, `make e2e-local`.
 
 ## Parity reports
 
@@ -638,22 +694,65 @@ asserting over.
 ## Coverage reporting (CI)
 
 The `coverage` job in `.github/workflows/ci-go.yml` measures test coverage,
-enforces a floor of **60%**, and publishes the report via Codecov. It runs on
-push to `main` and on demand, not on pull requests: pull requests carry the five
-checks the repository runs, and coverage is not one of them.
+checks it against the committed per-package floors in
+`testdata/coverage/floors.json`, and publishes the report via Codecov. It runs
+on push to `main` and on demand, not on pull requests: pull requests carry only
+the three checks the branch ruleset requires.
 
-- Run locally to check your coverage before pushing:
-  ```sh
-  go test -coverprofile=coverage.out -covermode=atomic ./...
-  go tool cover -func=coverage.out | awk '/total/{print $3}'
-  ```
-- The floor is 60%, and it is a floor set below a measured total rather than an
-  aspiration. The 80% it replaced never passed: every push to `main` while it
-  was in place reported around 62% and failed. Raise it as tests are added;
-  never lower it without a fresh measurement named in the commit body. The
-  number in the job (`floor=60`) is the authority; this document follows it.
-- The report is visible in the CI logs and on Codecov without digging through
-  artifacts.
+This replaced one repository-wide floor of 60%. A single floor lets a
+well-covered package subsidise a thin one: the signing path was averaged
+together with the CLI and the examples, so a real regression in the former could
+hide behind the latter. Each package now carries its own floor, set from the
+measurement recorded next to it — a floor nobody can meet gets raised away —
+with a one-line reason each. **The signing path (the root package and
+`internal/xdrcopy`) carries floors strictly above the 60% repository-wide floor
+this scheme replaced**, so a regression in the path that produces signatures
+cannot hide behind a repository average; `scripts/checkcov` enforces that
+minimum as policy.
+
+Packages with no tests by design are **excluded by name**, with a reason each,
+never given a floor of zero: the examples are documentation exercised by the
+golden and e2e runs, and `cmd/gencorpus`, `scripts/checkbench` and
+`scripts/frozengen` are development tools CI runs itself. If an excluded package
+gains tests, the checker fails until the table says what to do.
+
+`scripts/checkcov` fails naming the package and both numbers when a package
+drops below its floor, when a package has neither a floor nor an exclusion, and
+when the table and the tree disagree — a floor for a package that has been
+renamed away, or one raised above the measurement it was set from. It also
+filters `node_modules/` out of the profile: the root `npm ci` installs
+`node_modules/flatted/golang`, which a local run would otherwise see and CI
+never measures.
+
+Coverage is not correctness: it says which lines ran, not that the result is
+right. The mutation-testing work planned over the signing path
+([docs/WAVE10_BACKLOG.md](docs/WAVE10_BACKLOG.md), "test: mutation testing over
+the signing path") is the stronger check; these floors are a tripwire for
+regressions, not evidence of correctness.
+
+Reproduce the job with one command:
+
+```sh
+make coverage
+```
+
+which is:
+
+```sh
+go test -coverprofile=coverage.out -covermode=atomic ./...
+go list -f '{{.ImportPath}}' ./... > packages.txt
+go run ./scripts/checkcov coverage.out testdata/coverage/floors.json packages.txt
+```
+
+`make coverage` derives the toolchain from the `toolchain` line in `go.mod` and
+runs each command under it, because statement counts move between Go minor
+versions — go1.27 counts the `server` package about 4.5 points lower than
+go1.25.4 — and the floors were measured with the pinned toolchain. CI does the
+same.
+
+When a floor fails, `go tool cover -func=coverage.out` shows which functions
+moved, and the fix is the tests, not the floor. Changing a floor needs a fresh
+measurement named in the commit body; never lower one to make CI green.
 
 ## Property-based tests
 
@@ -809,6 +908,32 @@ To reproduce:
 The differential harness in `testdata/differential/` is a different kind of
 fuzzing — random entries checked across the Go, JS and Python implementations —
 and is documented in its own README.
+
+### Soak testing
+
+`TestSoakBatchSigning` in `soak_test.go` is the long version of the batch
+signing test. It lives behind the `soak` build tag, so `go test ./...` never
+compiles it, and it signs batches of the committed golden vectors from several
+goroutines, round after round, for a caller-chosen duration. After every round
+it asserts that every signed entry is byte-identical to the vector's recorded
+`signed_entry_xdr`, that the goroutine count is back to the baseline taken after
+a warm-up round, and that live heap (`HeapAlloc`, after a `runtime.GC`) is
+within the documented headroom of that baseline. The byte equality is what
+catches a pooled `internal/xdrcopy` buffer handed to two callers; the memory
+assertions catch a leak that only shows up over hours.
+
+```sh
+make soak                # 2m local smoke, race detector on
+make soak SOAKTIME=10m   # the nightly budget
+```
+
+It is **not** a replacement for `go test -race` or for
+`TestCopyConcurrentReuse`: those prove correctness under contention for the
+duration of a short run, while the soak watches the steady state for minutes and
+hours. The `soak` job in `.github/workflows/fuzz.yml` runs the ten-minute
+version on the same nightly schedule as the fuzz targets. The reported run, the
+machine it came from and the measurements the tolerances were set from are in
+[docs/soak.md](docs/soak.md).
 
 ### Capturing regressions
 

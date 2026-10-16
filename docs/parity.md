@@ -10,15 +10,15 @@ implementation shares.
 
 ## What each suite covers
 
-| Suite                                               | It proves                                                                                                                                                                                                                                                                                                                    | How to run it        |
-| --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------- |
-| Golden vectors (`testdata/vectors/`)                | soroauth reproduces `@stellar/stellar-sdk@17.1.0` byte for byte: for every vector, the preimage bytes, the payload hash, and the final signed entry are identical. The generator (`testdata/gen/gen.mjs`) refuses to run against any other SDK version, and CI regenerates on every push and fails on drift.                 | `make vectors-check` |
-| Python parity (`testdata/parity-python/`)           | The vectors' preimages and payloads recompute identically under a third, separately maintained implementation (`stellar-sdk==16.1.0` on PyPI, pinned in `requirements.txt`, refused if anything else is installed). This is the suite that can say "no" to a bug the Go library and the JS reference share.                  | `make parity`        |
-| Rust parity (`testdata/parity-rust/`)               | The same recomputation against `stellar-xdr =28.0.0` (pinned exactly, `Cargo.lock` committed, `--locked` enforced) — the XDR implementation `rs-soroban-env` itself decodes with. Agreement here is the strongest offline evidence available short of submitting a transaction.                                              | `make parity-rust`   |
-| Differential fuzzing (`testdata/differential/`)     | Agreement beyond the cases someone wrote down: `cmd/difffuzz` generates a deterministic corpus of random structurally valid entries (every arm, random delegate and sub-invocation depth, both nonce signs, the `int64` edges) and requires Go, JS, and Python to agree on every payload. A divergence is a release blocker. | `make differential`  |
-| Wasm parity (`wasm/parity.mjs`)                     | The browser build emits the same bytes as the native one: every golden vector replayed through `wasm/dist/soroauth.wasm`. Note the direction — the wasm core is a thin binding over this same Go code, so this proves the build, not independence.                                                                           | `make wasm-check`    |
-| Live testnet scenarios (`e2e/RESULTS.md`)           | A real host accepted (or, for the rejection scenarios, refused for the asserted reason) transactions carrying these entries. This is the only suite where the Soroban host itself renders a verdict.                                                                                                                         | `make e2e`           |
-| Passkey shape vectors (`testdata/vectors/passkey/`) | The P-256 `{public_key, signature}` map is byte-identical to what `smart-account-kit@0.8.0`, a real passkey wallet library, builds — asserted for both the inner map and the library's complete output. Live acceptance of that shape is scenarios J and K, not this suite.                                                  | `make vectors-check` |
+| Suite                                               | It proves                                                                                                                                                                                                                                                                                                                                                                                                                             | How to run it        |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------- |
+| Golden vectors (`testdata/vectors/`)                | soroauth reproduces `@stellar/stellar-sdk@17.1.0` byte for byte: for every vector, the preimage bytes, the payload hash, and the final signed entry are identical. The generator (`testdata/gen/gen.mjs`) refuses to run against any other SDK version, and CI regenerates on every push and fails on drift.                                                                                                                          | `make vectors-check` |
+| Python parity (`testdata/parity-python/`)           | The vectors' preimages and payloads recompute identically under a third, separately maintained implementation (`stellar-sdk==16.1.0` on PyPI, pinned in `requirements.txt`, refused if anything else is installed). This is the suite that can say "no" to a bug the Go library and the JS reference share.                                                                                                                           | `make parity`        |
+| Rust parity (`testdata/parity-rust/`)               | The same recomputation against `stellar-xdr =28.0.0` (pinned exactly, `Cargo.lock` committed, `--locked` enforced) — the XDR implementation `rs-soroban-env` itself decodes with. Agreement here is the strongest offline evidence available short of submitting a transaction.                                                                                                                                                       | `make parity-rust`   |
+| Differential fuzzing (`testdata/differential/`)     | Agreement beyond the cases someone wrote down: `cmd/difffuzz` generates a deterministic corpus of random structurally valid entries (every arm, random delegate and sub-invocation depth, both nonce signs, the `int64` edges) and requires Go, JS, and Python to agree on every payload. A divergence is a release blocker.                                                                                                          | `make differential`  |
+| Wasm parity (`wasm/parity.mjs`)                     | The browser build emits the same bytes as the native one: every golden vector, every differential corpus case (and its frozen regressions), and every fuzz seed replayed through `wasm/dist/soroauth.wasm` against the bytes the native build produced. A seed the native build refused must be refused too. Note the direction — the wasm core is a thin binding over this same Go code, so this proves the build, not independence. | `make wasm-check`    |
+| Live testnet scenarios (`e2e/RESULTS.md`)           | A real host accepted (or, for the rejection scenarios, refused for the asserted reason) transactions carrying these entries. This is the only suite where the Soroban host itself renders a verdict.                                                                                                                                                                                                                                  | `make e2e`           |
+| Passkey shape vectors (`testdata/vectors/passkey/`) | The P-256 `{public_key, signature}` map is byte-identical to what `smart-account-kit@0.8.0`, a real passkey wallet library, builds — asserted for both the inner map and the library's complete output. Live acceptance of that shape is scenarios J and K, not this suite.                                                                                                                                                           | `make vectors-check` |
 
 Three behaviors are uniform across the offline suites, by design: cases with no
 preimage (today the source-account vectors — arm 0 is authenticated by the
@@ -27,6 +27,84 @@ that checks nothing exits non-zero, so no suite can pass by doing nothing; and
 no suite ever writes to the vectors — a disagreement means an implementation is
 wrong, and editing a vector to make a harness pass destroys the evidence (see
 [CONTRIBUTING.md](../CONTRIBUTING.md#golden-vectors)).
+
+## Structural boundaries, and where the implementations disagree
+
+The vectors include the structural limits a host enforces, not only the shapes
+someone happened to write down (#366): `v2_account_multisig_20_signatures` is
+exactly the host's `MAX_ACCOUNT_SIGNATURES = 20` account signatures,
+`v2_empty_args` is an empty argument list, `delegates_single_node` is the
+shallowest tree, and `delegates_chain_depth_57` is the deepest delegate nesting
+the library accepts end to end.
+
+The depth vector records a real disagreement between the two implementations
+rather than a shared limit:
+
+- The pinned `@stellar/stellar-sdk` imposes **no policy cap** on delegate
+  nesting. Its only bound is the XDR codec's internal recursion guard (1500
+  frames), and it will build — and sign — chains of several hundred delegates.
+- `DecodeAuthorizationEntry` applies the library's 64-frame XDR bound, and each
+  delegate costs roughly two frames, so it refuses a chain of 58 and accepts 57.
+- `WithDelegates` applies the `MaxDecodeDepth = 64` traversal bound, which
+  accepts a chain of 63 (its guard also visits the empty level below a leaf).
+
+The intersection is 57, which is the vector's recorded depth. The finding is
+that a client which trusts the JS SDK to decide "this tree is fine" can build an
+entry the Go library then refuses to decode; anything near that boundary should
+be validated against the intended library before it is signed.
+
+## What the wasm parity harness replays
+
+`wasm/parity.mjs` replays four corpora through `wasm/dist/soroauth.wasm` and
+compares its output, byte for byte, with how the native build responded:
+
+- the golden vectors, whose preimage, payload and signed entry are the bytes the
+  native build and `@stellar/stellar-sdk` already agree on;
+- the differential fuzzing corpus, whose entries `cmd/difffuzz` generated and
+  whose payloads Go, JS and Python all reproduce;
+- the regressions frozen from past differential divergences; and
+- the fuzz seed corpus, replayed against
+  `testdata/wasm-parity/fuzz_expectations.json`.
+
+The fuzz seed corpus has no recorded bytes of its own — a Go fuzz seed is an
+input, not a result — so `cmd/gencorpus` records the native result for every
+seed in `testdata/wasm-parity/fuzz_expectations.json` in the same run that
+writes the seeds. That file is generated, committed and drift-checked with the
+seeds it describes, so the two can never name different bytes;
+`go run ./cmd/gencorpus` regenerates both. A seed with no recorded expectation
+fails the harness rather than being skipped, because a silently unrecorded seed
+is a case that stopped being checked.
+
+The wasm core exposes `preimage` and `payload` only. Entry-shaped seeds are
+replayed through `preimage`; `FuzzPayload`'s raw bytes are replayed through
+`payload`. That means the `FuzzInspect`, `FuzzDecodeAuthorizationEntry` and
+`FuzzValidateDelegateOrder` seeds are exercised through the shared entry decoder
+and preimage path, not through those three functions: the harness proves the
+wasm build decodes and hashes them identically, and does not prove `Inspect` or
+the delegate-order check behave the same under wasm, because neither is part of
+the wasm surface.
+
+For the same reason the golden vector signed by a classic-account multisig
+(`v2_account_multisig_20_signatures`) is reported as skipped: the binding's
+signing entry point takes one seed, so it cannot assemble a multi-signature
+entry. Its preimage and payload are still checked byte for byte; only the final
+signed entry is not compared, and the skip names that reason.
+
+A case the native build refused is not skipped: the harness requires the wasm
+build to refuse it too, so a decode that starts succeeding in wasm under its
+integer and memory model fails the run. This is where the int64 nonce boundaries
+are checked, since the nonce is the value most likely to cross that boundary
+differently. A source-account case has no preimage and is skipped, named and
+counted, like every other suite.
+
+The harness prints the case counts and the elapsed time. Its budget is 60
+seconds; the run takes well under a second on the CI runner, so the budget only
+catches a module that hangs rather than a slow-but-correct build.
+
+To freeze a wasm divergence, copy the failing case into
+`testdata/wasm-parity/regressions/` (the same schema as a differential case,
+with the native bytes recorded) and commit it. The harness replays that
+directory on every run.
 
 ## What none of them rule out
 

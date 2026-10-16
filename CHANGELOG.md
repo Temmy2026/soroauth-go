@@ -8,6 +8,34 @@ this project adheres to
 
 ## [Unreleased]
 
+- Entries signed by the `v0.1.0` release are frozen under
+  `testdata/frozen/v0.1.0/` and checked against the current code: each must
+  still decode to the same bytes, rebuild the payload the release recorded,
+  verify, and inspect to the same structure. The set is produced by
+  `scripts/frozengen` running inside the release's checkout, is never
+  regenerated, and lives outside `testdata/vectors` so `make vectors` cannot
+  move it; `make vectors-check` and CI diff it too. A frozen entry that stops
+  verifying is a wire-format regression and fails the build. (#360)
+
+- The wasm build is checked against the generated corpora, not only the golden
+  vectors. `wasm/parity.mjs` now replays the differential fuzzing corpus and its
+  frozen regressions, and the fuzz seed corpus, through
+  `wasm/dist/soroauth.wasm` and asserts byte equality against the native build.
+  The fuzz seeds' native results are recorded in
+  `testdata/wasm-parity/fuzz_expectations.json` by `cmd/gencorpus`, so they are
+  drift-checked with the seeds they describe; a seed the native build refused
+  must be refused by the wasm build too. The harness reports the case counts and
+  its elapsed time against a 60-second budget. (#364)
+
+- The signing-path benchmark gate is split per operation and per credential arm.
+  `bench_arms_test.go` adds `BenchmarkVerifyEntry` and `BenchmarkDiffEntries` on
+  legacy, V2 and delegates, plus `BenchmarkDelegateTree` parameterised by node
+  count, so a regression in one arm cannot hide behind an improvement in
+  another. `scripts/checkbench` now reports a failure by the operation and arm
+  it gates (`verification/delegates`) with the measured value and the committed
+  baseline, and `testdata/bench/budgets.json` carries a separate baseline per
+  arm. (#365)
+
 - The documentation directory has an index: [`docs/README.md`](docs/README.md)
   lists every document in the repository with one line on the question it
   answers, and the README links to it. (#173)

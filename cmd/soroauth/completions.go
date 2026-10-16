@@ -78,6 +78,7 @@ var commandSpecs = []commandSpec{
 		Description: "sign an entry with a seed read from an environment variable",
 		Flags: []flagSpec{
 			{Name: "entry", Description: "authorization entry or transaction envelope, as base64 XDR", TakesValue: true},
+			{Name: "entries", Description: "a file of entries to sign, one base64 entry per line, or - for stdin", TakesValue: true},
 			{Name: "valid-until", Description: "the last ledger at which the signature is valid", TakesValue: true},
 			{Name: "valid-for", Description: "the signature lifetime in ledgers, resolved against the current ledger (needs --rpc-url)", TakesValue: true},
 			{Name: "rpc-url", Description: "RPC endpoint used to resolve --valid-for (default $SOROAUTH_RPC_URL)", TakesValue: true},
@@ -106,6 +107,7 @@ var commandSpecs = []commandSpec{
 		Description: "print an entry's structure as JSON",
 		Flags: []flagSpec{
 			{Name: "entry", Description: "the authorization entry or transaction envelope, as base64 XDR", TakesValue: true},
+			{Name: "entries", Description: "a file of entries to inspect, one base64 entry per line, or - for stdin", TakesValue: true},
 			{Name: "json", Description: "accepted for consistency; inspect's output is always JSON", TakesValue: false},
 		},
 	},
@@ -153,6 +155,7 @@ var commandSpecs = []commandSpec{
 		Description: "check an entry's signatures without submitting it",
 		Flags: []flagSpec{
 			{Name: "entry", Description: "the authorization entry or transaction envelope, as base64 XDR", TakesValue: true},
+			{Name: "entries", Description: "a file of entries to verify, one base64 entry per line, or - for stdin", TakesValue: true},
 			{Name: "network", Description: "testnet, futurenet, public, or a literal network passphrase", TakesValue: true},
 			{Name: "valid-until", Description: "assert the expiration the entry carries (optional)", TakesValue: true},
 			{Name: "allow-unsigned", Description: "accept unsigned nodes (a Void top-level node of a delegates entry is legitimate under CAP-71-01)", TakesValue: false},
@@ -165,6 +168,8 @@ var commandSpecs = []commandSpec{
 		Flags: []flagSpec{
 			{Name: "before", Description: "the first authorization entry, as base64 XDR", TakesValue: true},
 			{Name: "after", Description: "the second authorization entry, as base64 XDR", TakesValue: true},
+			{Name: "before-entries", Description: "a file of entries to compare, one base64 entry per line, or - for stdin; paired with --after-entries", TakesValue: true},
+			{Name: "after-entries", Description: "a file of entries to compare, one base64 entry per line, or - for stdin; paired with --before-entries", TakesValue: true},
 			{Name: "json", Description: "output as JSON", TakesValue: false},
 		},
 	},

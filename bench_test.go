@@ -128,36 +128,6 @@ func BenchmarkNonceTrackerReserve(b *testing.B) {
 	}
 }
 
-func BenchmarkVerifyEntry(b *testing.B) {
-	kp, err := keypair.Random()
-	if err != nil {
-		b.Fatalf("random keypair: %v", err)
-	}
-	signer := NewEd25519Signer(kp)
-	entry := entryForArm(b, xdr.SorobanCredentialsTypeSorobanCredentialsAddressV2, 1)
-
-	address, err := ParseAddress(kp.Address())
-	if err != nil {
-		b.Fatalf("parse address: %v", err)
-	}
-	cred, err := addressCredentials(entry.Credentials)
-	if err != nil {
-		b.Fatalf("credentials: %v", err)
-	}
-	cred.Address = address
-
-	signedSlice, err := AuthorizeAll(context.Background(), []xdr.SorobanAuthorizationEntry{entry}, []Signer{signer}, 100, network.TestNetworkPassphrase)
-	if err != nil {
-		b.Fatalf("authorize: %v", err)
-	}
-	signed := signedSlice[0]
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_, _ = VerifyEntry(signed, network.TestNetworkPassphrase)
-	}
-}
-
 func BenchmarkVerifyAll(b *testing.B) {
 	kp, err := keypair.Random()
 	if err != nil {

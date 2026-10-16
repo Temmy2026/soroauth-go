@@ -55,7 +55,12 @@ jobs:
         run: |
           go build -o bin/soroauth ./cmd/soroauth
           ./bin/soroauth wasm-budget --out wasm/dist/soroauth.wasm --json
-      - name: wasm byte parity against the golden vectors
+      # Replays the golden vectors, the differential fuzzing corpus (and its
+      # frozen regressions), and the fuzz seed corpus through the module. The
+      # harness prints the case counts and the elapsed time and fails if the run
+      # exceeds its 60 s budget; on this workload it finishes in well under a
+      # second, so the budget only catches a build that hangs or thrashes.
+      - name: wasm byte parity against the golden, differential and fuzz corpora
         run: node wasm/parity.mjs
       - name: typescript wrapper
         working-directory: wasm/ts

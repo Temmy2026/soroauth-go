@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "name": "v2_empty_args",
+  "sdk": "@stellar/stellar-sdk@17.1.0",
+  "network_passphrase": "Test SDF Network ; September 2015",
+  "valid_until_ledger": 1234567,
+  "pre_wrap_entry_xdr": "",
+  "unsigned_entry_xdr": "AAAAAgAAAAAAAAAAt7bYKS3hKDB7Aw8ykLPfkH7kJtcX2OWQMp2pPDOof8oRIhD0femBFQAAAAAAAAAQAAAAAQAAAAAAAAAAAAAAAWsigAe28NAI+AYqzjlUB0zlzb9U6kzFAwIvCJPm9Q6zAAAABG5vb3AAAAAAAAAAAA==",
+  "delegates": [],
+  "steps": [
+    {
+      "signer_label": "soroauth-vector-signer-1",
+      "for_address": null
+    }
+  ],
+  "preimage_xdr": "AAAACs7gMC1ZhE0yvcqRXIID3USzP7t+3BkFHqN6vt8o7NRyESIQ9H3pgRUAEtaHAAAAAAAAAAC3ttgpLeEoMHsDDzKQs9+QfuQm1xfY5ZAynak8M6h/ygAAAAAAAAABayKAB7bw0Aj4BirOOVQHTOXNv1TqTMUDAi8Ik+b1DrMAAAAEbm9vcAAAAAAAAAAA",
+  "payload_hex": "986cb67588b04b0078189bc6893fa4e74aaf54f10f727558f871f35cf31af3c8",
+  "signed_entry_xdr": "AAAAAgAAAAAAAAAAt7bYKS3hKDB7Aw8ykLPfkH7kJtcX2OWQMp2pPDOof8oRIhD0femBFQAS1ocAAAAQAAAAAQAAAAEAAAARAAAAAQAAAAIAAAAPAAAACnB1YmxpY19rZXkAAAAAAA0AAAAgt7bYKS3hKDB7Aw8ykLPfkH7kJtcX2OWQMp2pPDOof8oAAAAPAAAACXNpZ25hdHVyZQAAAAAAAA0AAABAbuXXkAcIyh8u0Zn00vEvHKc8tx0CAzKdu7usBiNSJnO8dY9pAfTTjoe2f0MKiq1NIv59QCKHQPyMLRvPTocqDwAAAAAAAAABayKAB7bw0Aj4BirOOVQHTOXNv1TqTMUDAi8Ik+b1DrMAAAAEbm9vcAAAAAAAAAAA"
+}

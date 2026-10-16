@@ -32,7 +32,7 @@ permissions:
 
 jobs:
   coverage:
-    name: coverage above floor
+    name: per-package coverage floors
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -40,29 +40,36 @@ jobs:
         with:
           go-version-file: go.mod
           check-latest: true
+      # Per-package floors from testdata/coverage/floors.json, not one global
+      # floor. A single floor let a well-covered package subsidise a thin one:
+      # the signing path was averaged together with the CLI and the examples,
+      # so a regression in the path that produces signatures could hide behind
+      # the rest. The signing-path packages carry floors strictly above the
+      # 60% global floor this scheme replaced; scripts/checkcov enforces that
+      # minimum as policy.
+      #
+      # Coverage is not correctness: it says which lines ran, not that the
+      # result is right. The mutation-testing work is the stronger check;
+      # these floors are a tripwire for regressions, not evidence of
+      # correctness.
+      #
+      # The package list is a file input to the checker so the checker stays
+      # hermetic and unit-testable, mirroring scripts/checkbench.
       - name: run tests with coverage
         run: |
+          # The floors were measured with the toolchain go.mod pins, and
+          # statement counts move between Go minor versions (go1.27 counts the
+          # server package ~4.5 points lower than go1.25.4), so this runs the
+          # measurement under that same toolchain. `make coverage` does the
+          # same.
+          export GOTOOLCHAIN="$(awk '/^toolchain /{print $2}' go.mod)"
           go test -coverprofile=coverage.out -covermode=atomic ./...
           echo "=== Coverage report ==="
           go tool cover -func=coverage.out
-      - name: check coverage floor
-        run: |
-          # 60 is a floor set below a measured total, not an aspiration. The
-          # 80 this replaced never passed: every push to main since the floor
-          # was added reported ~62% and failed (run 36087884030 printed
-          # "Total coverage: 62.1% is below the floor of 80%").
-          # Measured 2026-09-25 with go1.25.4 on linux/amd64:
-          #   go test -coverprofile=coverage.out -covermode=atomic ./...
-          #   go tool cover -func=coverage.out | tail -1  ->  total: 62.8%
-          # Raise this as tests are added; never lower it without a fresh
-          # measurement named in the commit body.
-          floor=60
-          total=$(go tool cover -func=coverage.out | awk '/total/{print $3}' | tr -d '%')
-          echo "Total coverage: ${total}%"
-          if python3 -c "import sys; sys.exit(0 if float('${total}') < float('${floor}') else 1)"; then
-            echo "Coverage ${total}% is below the floor of ${floor}%"
-            exit 1
-          fi
+      - name: generate the package list
+        run: go list -f '{{.ImportPath}}' ./... > packages.txt
+      - name: check per-package floors
+        run: go run ./scripts/checkcov coverage.out testdata/coverage/floors.json packages.txt
       - name: publish coverage
         uses: codecov/codecov-action@v7
         with:

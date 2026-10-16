@@ -509,7 +509,7 @@ func TestExitCodes(t *testing.T) {
 			name:     "inspect no entry",
 			args:     []string{"inspect"},
 			wantCode: ExitUsageError,
-			wantMsg:  "--entry is required",
+			wantMsg:  "--entry or --entries is required",
 		},
 		{
 			name:     "inspect malformed entry",

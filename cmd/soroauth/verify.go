@@ -15,6 +15,7 @@ const verifyUsage = `soroauth verify — check an entry's signatures without sub
 
 usage:
   soroauth verify --entry <base64> --network <name|passphrase> [--valid-until <ledger>] [--allow-unsigned] [--json]
+  soroauth verify --entries <file|-> --network <name|passphrase> [--valid-until <ledger>] [--allow-unsigned] [--json]
 
 Verification answers one question: do the signatures already on this entry
 verify over the payload the entry itself commits to? The payload is rebuilt
@@ -44,6 +45,15 @@ with the expiration the entry carries. It is 0 only when every node verified.
 --entry accepts either an authorization entry or a whole transaction envelope;
 an envelope is verified entry by entry, each with the operation and entry index
 it came from. A fee-bump envelope is read through to its inner transaction.
+
+--entries verifies many entries: one base64 authorization entry per line from
+the named file ("-" for stdin), blank lines skipped. An envelope is not a batch
+line; select its entries first. Each input is reported with its 1-based
+position: an "entry N:" header and the same report as a single entry without
+--json, or one array element per input with it —
+{"entry": N, "result": {...}} on success, {"entry": N, "error": "..."} on
+failure. A line that fails to decode or verify does not stop the run; the exit
+code is the first failure's.
 
 --valid-until, when given, is an assertion rather than an input: the payload is
 always rebuilt from the entry's own stored expiration, and a disagreement is an
@@ -122,7 +132,7 @@ func verifyFailed(report soroauth.VerificationReport, allowUnsigned bool) bool {
 	return false
 }
 
-func runVerify(args []string, stdout, stderr io.Writer) error {
+func runVerify(args []string, stdout, stderr io.Writer, stdin io.Reader) error {
 	flags := flag.NewFlagSet("verify", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	flags.Usage = func() {
@@ -132,6 +142,7 @@ func runVerify(args []string, stdout, stderr io.Writer) error {
 	}
 
 	entryFlag := flags.String("entry", "", "the authorization entry or transaction envelope, as base64 XDR")
+	entriesFlag := flags.String("entries", "", "a file of entries to verify, one base64 entry per line, or - for stdin")
 	networkFlag := flags.String("network", "", "testnet, futurenet, public, or a literal network passphrase")
 	validUntil := flags.Uint("valid-until", 0, "assert the expiration the entry carries (optional)")
 	allowUnsigned := flags.Bool("allow-unsigned", false, "accept unsigned nodes (a Void top-level node of a delegates entry is legitimate under CAP-71-01)")
@@ -141,7 +152,20 @@ func runVerify(args []string, stdout, stderr io.Writer) error {
 		return newErrorf(ExitUsageError, "%w", err)
 	}
 
-	input, err := decodeEntryOrEnvelope(*entryFlag)
+	if *entryFlag != "" && *entriesFlag != "" {
+		return writeJSONError(stdout, *jsonFlag,
+			newErrorf(ExitUsageError, "--entry and --entries are mutually exclusive"))
+	}
+	if *entriesFlag != "" {
+		return runVerifyBatch(stdout, stderr, *entriesFlag, stdin,
+			*networkFlag, *validUntil, *allowUnsigned, *jsonFlag)
+	}
+	if *entryFlag == "" {
+		return writeJSONError(stdout, *jsonFlag,
+			newErrorf(ExitUsageError, "--entry or --entries is required"))
+	}
+
+	input, err := decodeEntryOrEnvelopeFrom(*entryFlag, stdin)
 	if err != nil {
 		return writeJSONError(stdout, *jsonFlag, err)
 	}
@@ -214,6 +238,62 @@ func runVerify(args []string, stdout, stderr io.Writer) error {
 		return newErrorf(ExitVerificationFailed, "one or more credential nodes did not verify")
 	}
 	return nil
+}
+
+// runVerifyBatch applies verify to every input in the file, with the same
+// per-entry handling the usage text describes: every input is attempted, each
+// outcome carries its position, and the exit code is the FIRST failure's.
+func runVerifyBatch(stdout, stderr io.Writer, entriesFlag string, stdin io.Reader, networkFlag string, validUntil uint, allowUnsigned, jsonFlag bool) error {
+	passphrase, err := resolveNetwork(networkFlag)
+	if err != nil {
+		return writeJSONError(stdout, jsonFlag, err)
+	}
+
+	inputs, err := readBatchEntries("--entries", entriesFlag, stdin)
+	if err != nil {
+		return writeJSONError(stdout, jsonFlag, err)
+	}
+	if len(inputs) == 0 {
+		return writeJSONError(stdout, jsonFlag, emptyBatchError("--entries", entriesFlag))
+	}
+
+	run := newBatchRun(len(inputs))
+	for _, in := range inputs {
+		if in.Err != nil {
+			run.fail(in.Index, in.Err)
+			reportBatchFailure(stderr, jsonFlag, in.Index, in.Err)
+			continue
+		}
+
+		report, err := soroauth.VerifyEntry(in.Entry, passphrase)
+		if err != nil {
+			failure := newErrorf(ExitVerificationFailed, "%w", err)
+			run.fail(in.Index, failure)
+			reportBatchFailure(stderr, jsonFlag, in.Index, failure)
+			continue
+		}
+		if validUntil != 0 && report.ValidUntilLedger != uint32(validUntil) {
+			failure := newErrorf(ExitVerificationFailed,
+				"entry carries expiration %d, but --valid-until says %d", report.ValidUntilLedger, uint32(validUntil))
+			run.fail(in.Index, failure)
+			reportBatchFailure(stderr, jsonFlag, in.Index, failure)
+			continue
+		}
+
+		out := newVerifyEntryOutput(report)
+		// A verdict that is not a pass still has a report worth printing,
+		// so it stays a result and only the exit code records the failure.
+		if verifyFailed(report, allowUnsigned) {
+			run.recordFailure(newErrorf(ExitVerificationFailed, "one or more credential nodes did not verify"))
+		}
+		run.result(in.Index, out)
+		if !jsonFlag {
+			fmt.Fprintf(stdout, "entry %d:\n", in.Index)
+			writeVerifyText(stdout, []verifyEntryOutput{out}, false)
+		}
+	}
+
+	return run.finish(stdout, jsonFlag)
 }
 
 // writeVerifyText renders the reports for a human, one line per node.

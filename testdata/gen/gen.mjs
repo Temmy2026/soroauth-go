@@ -200,6 +200,20 @@ const invocationCreateContract = () =>
     subInvocations: [],
   });
 
+// A contract call with no arguments at all, the empty-list boundary the
+// encoder has to special-case.
+const invocationWithEmptyArgs = () =>
+  new xdr.SorobanAuthorizedInvocation({
+    function: xdr.SorobanAuthorizedFunction.sorobanAuthorizedFunctionTypeContractFn(
+      new xdr.InvokeContractArgs({
+        contractAddress: contractAddress("soroauth-vector-contract-empty-args"),
+        functionName: "noop",
+        args: [],
+      }),
+    ),
+    subInvocations: [],
+  });
+
 const DELEGATE_1 = "soroauth-vector-delegate-1";
 const DELEGATE_2 = "soroauth-vector-delegate-2";
 const DELEGATE_3 = "soroauth-vector-delegate-3";
@@ -214,6 +228,97 @@ const delegate = (label, nested = []) => ({
   address: keypairFor(label).publicKey(),
   nested,
 });
+
+// The deepest delegate nesting all three layers agree on, and the depth the
+// vector's name records.
+//
+// This is a measured disagreement, not a free choice. The pinned JS SDK imposes
+// no policy cap at all — its only bound is the XDR codec's 1500-frame recursion
+// guard, and it happily builds chains of a thousand delegates. The Go library
+// refuses them in two places, and the tighter one wins:
+//
+//   - DecodeAuthorizationEntry applies a 64-frame XDR bound, and each delegate
+//     costs roughly two frames, so a chain of 58 is the first it refuses; 57 is
+//     the deepest it decodes.
+//   - WithDelegates applies the MaxDecodeDepth = 64 traversal bound, allowing a
+//     chain of 63 before its own guard bites on the empty level below the leaf.
+//
+// So the deepest nesting the pipeline accepts end to end is 57. That the JS SDK
+// will produce trees the library refuses is the finding this vector records;
+// see docs/parity.md.
+const MAX_VECTOR_DELEGATE_DEPTH = 57;
+
+const delegateChainLabel = (level) => `soroauth-vector-delegate-chain-${level}`;
+
+// delegateChain builds a single chain of `depth` nested delegates: level 1
+// delegates to level 2, which delegates to level 3, and so on to the leaf.
+const delegateChain = (depth) => {
+  let node = delegate(delegateChainLabel(depth));
+  for (let level = depth - 1; level >= 1; level--) {
+    node = delegate(delegateChainLabel(level), [node]);
+  }
+  return node;
+};
+
+// ---------------------------------------------------------------------------
+// Classic-account multisig signatures
+// ---------------------------------------------------------------------------
+//
+// The host decodes a classic account's signature as a vector of
+// {public_key, signature} maps, sorted strictly ascending by raw public key,
+// and refuses more than MAX_ACCOUNT_SIGNATURES = 20 of them
+// (rs-soroban-env soroban-env-host/src/builtin_contracts/account_contract.rs).
+// The pinned JS SDK's authorizeEntry signs with a single Keypair, so a
+// multisig vector is assembled here from the SDK's own signing primitive; the
+// Go side reproduces it with NewAccountMultiSigner, which sorts the same way.
+
+const MULTISIG_ACCOUNT = "soroauth-vector-multisig-account";
+
+const MULTISIG_KEY_COUNT = 20;
+
+const MULTISIG_KEYS = Array.from(
+  { length: MULTISIG_KEY_COUNT },
+  (_, i) => `soroauth-vector-multisig-key-${String(i).padStart(2, "0")}`,
+);
+
+// accountSignatureScVal builds the single {public_key, signature} map the host
+// decodes as one AccountEd25519Signature. Keys are symbols written in key
+// order — "public_key" before "signature" — because an ScMap must be sorted.
+const accountSignatureScVal = (rawPublicKey, signature) =>
+  xdr.ScVal.scvMap([
+    new xdr.ScMapEntry({
+      key: xdr.ScVal.scvSymbol("public_key"),
+      val: xdr.ScVal.scvBytes(rawPublicKey),
+    }),
+    new xdr.ScMapEntry({
+      key: xdr.ScVal.scvSymbol("signature"),
+      val: xdr.ScVal.scvBytes(signature),
+    }),
+  ]);
+
+// multisigSignatures signs payload with every label and returns the signature
+// vector, ordered by raw public key exactly as the Go library orders it.
+const multisigSignatures = (payload, labels) => {
+  const keys = labels
+    .map((label) => {
+      const kp = keypairFor(label);
+      return { raw: kp.rawPublicKey(), kp };
+    })
+    .sort((a, b) => Buffer.compare(a.raw, b.raw));
+  return xdr.ScVal.scvVec(
+    keys.map(({ raw, kp }) => accountSignatureScVal(raw, kp.sign(payload))),
+  );
+};
+
+// withMultisigSignature writes a multisig signature vector onto a V2 entry,
+// with the stored expiration the Go side also stores, so the recorded signed
+// entry is what Go's AuthorizeEntry produces.
+const withMultisigSignature = (entry, payload, validUntil, labels) => {
+  const signed = xdr.SorobanAuthorizationEntry.fromXDR(entry.toXDR());
+  signed.credentials.addressV2.signature = multisigSignatures(payload, labels);
+  signed.credentials.addressV2.signatureExpirationLedger = validUntil;
+  return signed;
+};
 
 // Converts a recorded descriptor tree into the shape buildWithDelegatesEntry
 // expects. Signatures are left out, so each node starts as an scvVoid
@@ -453,6 +558,76 @@ const CASES = [
       }),
     steps: [{ signerLabel: SIGNER_1, forAddress: null }],
   },
+  // #366: exactly MAX_ACCOUNT_SIGNATURES = 20 account signatures. The host's
+  // account contract refuses a 21st, which NewAccountMultiSigner checks up
+  // front (see TestGoldenStructuralBoundaries).
+  {
+    name: "v2_account_multisig_20_signatures",
+    networkPassphrase: Networks.TESTNET,
+    entry: () =>
+      unsignedEntry({
+        signerLabel: MULTISIG_ACCOUNT,
+        nonce: NONCE_ORDINARY,
+        invocation: invocationWithManyArgTypes(),
+        authV2: true,
+      }),
+    multisigKeys: MULTISIG_KEYS,
+    steps: [
+      {
+        signerLabel: MULTISIG_ACCOUNT,
+        multisig: { signer_labels: MULTISIG_KEYS },
+      },
+    ],
+  },
+  // #366: an empty argument list.
+  {
+    name: "v2_empty_args",
+    networkPassphrase: Networks.TESTNET,
+    entry: () =>
+      unsignedEntry({
+        signerLabel: SIGNER_1,
+        nonce: NONCE_ORDINARY,
+        invocation: invocationWithEmptyArgs(),
+        authV2: true,
+      }),
+    steps: [{ signerLabel: SIGNER_1, forAddress: null }],
+  },
+  // #366: a single-delegate tree, the shallowest delegates arm.
+  {
+    name: "delegates_single_node",
+    networkPassphrase: Networks.TESTNET,
+    entry: () =>
+      unsignedEntry({
+        signerLabel: SIGNER_1,
+        nonce: NONCE_ORDINARY,
+        invocation: invocationWithManyArgTypes(),
+        authV2: true,
+      }),
+    delegates: [delegate(DELEGATE_1)],
+    steps: [
+      { signerLabel: DELEGATE_1, forAddress: keypairFor(DELEGATE_1).publicKey() },
+    ],
+  },
+  // #366: the deepest nesting both implementations accept. The depth is in
+  // the name because that is how the next person finds it.
+  {
+    name: `delegates_chain_depth_${MAX_VECTOR_DELEGATE_DEPTH}`,
+    networkPassphrase: Networks.TESTNET,
+    entry: () =>
+      unsignedEntry({
+        signerLabel: SIGNER_1,
+        nonce: NONCE_ORDINARY,
+        invocation: invocationWithManyArgTypes(),
+        authV2: true,
+      }),
+    delegates: [delegateChain(MAX_VECTOR_DELEGATE_DEPTH)],
+    steps: [
+      {
+        signerLabel: delegateChainLabel(MAX_VECTOR_DELEGATE_DEPTH),
+        forAddress: keypairFor(delegateChainLabel(MAX_VECTOR_DELEGATE_DEPTH)).publicKey(),
+      },
+    ],
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -491,6 +666,7 @@ const generate = async (testCase) => {
 
   let preimageXdr = "";
   let payloadHex = "";
+  let payload = null;
 
   if (!isSourceAccount) {
     const preimage = buildAuthorizationEntryPreimage(
@@ -499,21 +675,27 @@ const generate = async (testCase) => {
       testCase.networkPassphrase,
     );
     preimageXdr = preimage.toXDR("base64");
-    const payload = hash(preimage.toXDR());
+    payload = hash(preimage.toXDR());
     payloadHex = Buffer.from(payload).toString("hex");
   }
 
   // Each step signs the entry produced by the step before it, which is how a
-  // delegate tree gets filled in one signer at a time.
+  // delegate tree gets filled in one signer at a time. The multisig case is
+  // the exception: the pinned SDK signs with one Keypair, so the 20-signature
+  // vector is assembled from the SDK's signing primitive instead.
   let signed = entry;
-  for (const step of testCase.steps) {
-    signed = await authorizeEntry(
-      signed,
-      keypairFor(step.signerLabel),
-      validUntil,
-      testCase.networkPassphrase,
-      step.forAddress ?? undefined,
-    );
+  if (testCase.multisigKeys) {
+    signed = withMultisigSignature(entry, payload, validUntil, testCase.multisigKeys);
+  } else {
+    for (const step of testCase.steps) {
+      signed = await authorizeEntry(
+        signed,
+        keypairFor(step.signerLabel),
+        validUntil,
+        testCase.networkPassphrase,
+        step.forAddress ?? undefined,
+      );
+    }
   }
 
   const signedXdr = signed.toXDR("base64");
@@ -535,6 +717,7 @@ const generate = async (testCase) => {
     steps: testCase.steps.map((step) => ({
       signer_label: step.signerLabel,
       for_address: step.forAddress ?? null,
+      ...(step.multisig ? { multisig: step.multisig } : {}),
     })),
     preimage_xdr: preimageXdr,
     payload_hex: payloadHex,

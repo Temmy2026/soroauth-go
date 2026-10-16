@@ -29,16 +29,26 @@
 // The seed is the decoded entry, not the base64 text, because the target's
 // argument is the []byte it hands to UnmarshalBinary.
 //
+// It also writes testdata/wasm-parity/fuzz_expectations.json: the native result
+// for every seed, which wasm/parity.mjs replays the wasm build against. The wasm
+// core exposes only preimage and payload, so those are the two operations
+// recorded; an entry-shaped seed is recorded as a preimage case and a
+// FuzzPayload seed as a payload case. Recording the native bytes here rather
+// than recomputing them in the harness keeps one definition of the operation
+// and lets the existing regenerate-and-diff check cover the expectations too.
+//
 // Run from the repository root:
 //
 //	go run ./cmd/gencorpus
 //
-// It is deterministic: the same vectors produce byte-identical corpus files, so
-// CI regenerates and fails on drift the same way it does for the vectors.
+// It is deterministic: the same vectors produce byte-identical corpus files and
+// expectations, so CI regenerates and fails on drift the same way it does for
+// the vectors.
 package main
 
 import (
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -46,6 +56,10 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	soroauth "github.com/soroauth/soroauth-go"
+	"github.com/stellar/go-stellar-sdk/network"
+	"github.com/stellar/go-stellar-sdk/xdr"
 )
 
 const (
@@ -56,6 +70,16 @@ const (
 	// every file inside testdata/fuzz/<TargetName> as a seed: a manifest
 	// there would fail the package's tests instead of being skipped.
 	manifestDir = "testdata/fuzz/.gencorpus"
+	// expectationsPath is the native-side record wasm/parity.mjs replays the
+	// wasm build against. It is generated, committed and drift-checked with
+	// the seeds it describes, so the two can never name different bytes.
+	expectationsPath = "testdata/wasm-parity/fuzz_expectations.json"
+
+	// These mirror the constants the fuzz targets use (preimage_test.go) and
+	// the values the wasm harness passes when it replays a seed. They are
+	// written into the expectations file so the harness does not hardcode them.
+	testValidUntilLedger  = uint32(1234567)
+	testNetworkPassphrase = network.TestNetworkPassphrase
 )
 
 // vector is the part of a golden vector this reads: the entry before any
@@ -73,6 +97,20 @@ var targets = []string{
 	"FuzzInspect",
 	"FuzzPreimage",
 	"FuzzDecodeAuthorizationEntry",
+}
+
+// fuzzOperation maps a fuzz target's seed directory to the wasm entry point its
+// seeds are replayed through by wasm/parity.mjs. The wasm core exposes only
+// preimage and payload, so an entry-shaped seed (every target but FuzzPayload)
+// is replayed through preimage; FuzzPayload's raw bytes are a HashIdPreimage and
+// are replayed through payload. The mapping is recorded per case, not inferred
+// from the target name, so the harness never has to duplicate it.
+var fuzzOperation = map[string]string{
+	"FuzzValidateDelegateOrder":    "preimage",
+	"FuzzInspect":                  "preimage",
+	"FuzzPreimage":                 "preimage",
+	"FuzzDecodeAuthorizationEntry": "preimage",
+	"FuzzPayload":                  "payload",
 }
 
 func main() {
@@ -166,7 +204,17 @@ func run() error {
 		return fmt.Errorf("writing payload seeds: %w", err)
 	}
 
+	// Record the native result for every seed now on disk, including a
+	// committed crash reproducer gencorpus did not write. Done last, after
+	// every seed directory is populated, so the expectations always describe
+	// the exact set of seeds the fuzzer and the wasm harness both read.
+	recorded, err := writeExpectations()
+	if err != nil {
+		return fmt.Errorf("writing wasm parity expectations: %w", err)
+	}
+
 	fmt.Printf("total seeds written: %d\n", totalWritten)
+	fmt.Printf("recorded native expectations for %d seeds in %s\n", recorded, expectationsPath)
 	return nil
 }
 
@@ -249,4 +297,143 @@ func writeManifest(target string, names []string) error {
 		return fmt.Errorf("writing %s: %w", filepath.Join(manifestDir, target), err)
 	}
 	return nil
+}
+
+// expectation is the native result for one seed: the operation the seed is
+// replayed through, and either the bytes that operation produced or the fact
+// that the native build refused the input. A rejected seed is not skipped: the
+// harness requires the wasm build to refuse it too, so a decode that starts
+// succeeding in wasm fails the run.
+type expectation struct {
+	Operation   string `json:"operation"`
+	Status      string `json:"status"`
+	PreimageXDR string `json:"preimage_xdr,omitempty"`
+	PayloadHex  string `json:"payload_hex,omitempty"`
+}
+
+// expectationsFile is the on-disk document wasm/parity.mjs reads.
+type expectationsFile struct {
+	SchemaVersion     int    `json:"schema_version"`
+	Note              string `json:"note"`
+	ValidUntilLedger  uint32 `json:"valid_until_ledger"`
+	NetworkPassphrase string `json:"network_passphrase"`
+	// Cases is keyed by "<Target>/<seed file name>", the same key the harness
+	// derives from the seed corpus, so a seed and its expectation cannot drift.
+	Cases map[string]expectation `json:"cases"`
+}
+
+// writeExpectations reads every seed on disk and records the native result.
+// Reading the directory rather than remembering what was written means a
+// committed crash reproducer is recorded too; a seed with no expectation would
+// otherwise be a case the harness silently skips.
+func writeExpectations() (int, error) {
+	cases := make(map[string]expectation)
+	for target, operation := range fuzzOperation {
+		outDir := filepath.Join(fuzzDir, target)
+		entries, err := os.ReadDir(outDir)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return 0, fmt.Errorf("reading %s: %w", outDir, err)
+		}
+		for _, e := range entries {
+			if e.IsDir() {
+				continue
+			}
+			data, err := readSeedFile(filepath.Join(outDir, e.Name()))
+			if err != nil {
+				return 0, fmt.Errorf("reading seed %s/%s: %w", target, e.Name(), err)
+			}
+			cases[target+"/"+e.Name()] = expectationFor(operation, data)
+		}
+	}
+
+	doc := expectationsFile{
+		SchemaVersion:     1,
+		Note:              "Native Go results for the fuzz seed corpus, replayed by wasm/parity.mjs. Generated by cmd/gencorpus; never edit by hand. Status \"reject\" means the native build refused the input and the wasm build must refuse it too.",
+		ValidUntilLedger:  testValidUntilLedger,
+		NetworkPassphrase: testNetworkPassphrase,
+		Cases:             cases,
+	}
+	raw, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		return 0, fmt.Errorf("marshalling expectations: %w", err)
+	}
+	raw = append(raw, '\n')
+	if err := os.MkdirAll(filepath.Dir(expectationsPath), 0o755); err != nil {
+		return 0, fmt.Errorf("creating %s: %w", filepath.Dir(expectationsPath), err)
+	}
+	if err := os.WriteFile(expectationsPath, raw, 0o644); err != nil {
+		return 0, fmt.Errorf("writing %s: %w", expectationsPath, err)
+	}
+	return len(cases), nil
+}
+
+// readSeedFile parses the raw []byte out of a Go fuzz corpus file. Every seed
+// gencorpus writes has exactly one []byte literal on the second line, and so
+// does every reproducer the Go fuzzer writes.
+func readSeedFile(path string) ([]byte, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	lines := strings.SplitN(string(raw), "\n", 3)
+	if len(lines) < 2 || lines[0] != "go test fuzz v1" {
+		return nil, fmt.Errorf("not a Go fuzz corpus file (missing %q header)", "go test fuzz v1")
+	}
+	literal := strings.TrimSpace(lines[1])
+	const prefix = "[]byte("
+	if !strings.HasPrefix(literal, prefix) || !strings.HasSuffix(literal, ")") {
+		return nil, fmt.Errorf("unsupported argument literal %q", literal)
+	}
+	unquoted, err := strconv.Unquote(literal[len(prefix) : len(literal)-1])
+	if err != nil {
+		return nil, fmt.Errorf("unquoting argument: %w", err)
+	}
+	return []byte(unquoted), nil
+}
+
+// expectationFor computes the native result for one seed, using exactly the
+// decode and the two operations the wasm binding uses (cmd/soroauthwasm):
+// SafeUnmarshalBase64 into an entry or a HashIdPreimage, then Preimage/Payload.
+// Mirroring the binding rather than a stricter path means a mismatch the
+// harness reports is a difference between the two builds, not a difference
+// between two call sites.
+func expectationFor(operation string, data []byte) expectation {
+	b64 := base64.StdEncoding.EncodeToString(data)
+	if operation == "payload" {
+		var pre xdr.HashIdPreimage
+		if err := xdr.SafeUnmarshalBase64(b64, &pre); err != nil {
+			return expectation{Operation: operation, Status: "reject"}
+		}
+		digest, err := soroauth.Payload(pre)
+		if err != nil {
+			return expectation{Operation: operation, Status: "reject"}
+		}
+		return expectation{Operation: operation, Status: "ok", PayloadHex: hex.EncodeToString(digest[:])}
+	}
+
+	var entry xdr.SorobanAuthorizationEntry
+	if err := xdr.SafeUnmarshalBase64(b64, &entry); err != nil {
+		return expectation{Operation: operation, Status: "reject"}
+	}
+	pre, err := soroauth.Preimage(entry, testValidUntilLedger, testNetworkPassphrase)
+	if err != nil {
+		return expectation{Operation: operation, Status: "reject"}
+	}
+	raw, err := pre.MarshalBinary()
+	if err != nil {
+		return expectation{Operation: operation, Status: "reject"}
+	}
+	digest, err := soroauth.Payload(pre)
+	if err != nil {
+		return expectation{Operation: operation, Status: "reject"}
+	}
+	return expectation{
+		Operation:   operation,
+		Status:      "ok",
+		PreimageXDR: base64.StdEncoding.EncodeToString(raw),
+		PayloadHex:  hex.EncodeToString(digest[:]),
+	}
 }

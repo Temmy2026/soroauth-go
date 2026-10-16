@@ -120,14 +120,15 @@ func run(args []string, stdout, stderr io.Writer, getenv func(string) string) er
 	return runWithStdin(args, stdout, stderr, getenv, os.Stdin)
 }
 
-// runWithStdin is run with the standard input it reads `--entry -` from
-// injected, so a test can pipe one subcommand's output into the next without
-// replacing the process's real os.Stdin. Replacing it is not safe here: the
-// test binary runs cases in parallel and os.Stdin is shared, so a swap made by
-// one case is visible to every other one.
+// runWithStdin is run with the standard input it reads `--entry -` (and the
+// batch flags' "-") from injected, so a test can pipe one subcommand's output
+// into the next without replacing the process's real os.Stdin. Replacing it is
+// not safe here: the test binary runs cases in parallel and os.Stdin is shared,
+// so a swap made by one case is visible to every other one.
 //
-// Only payload, sign and delegates accept `--entry -`; the remaining
-// subcommands are dispatched exactly as run would dispatch them.
+// The subcommands that read stdin — payload, sign, delegates, inspect, verify
+// and diff — are dispatched with it; the remaining subcommands are dispatched
+// exactly as run would dispatch them.
 func runWithStdin(args []string, stdout, stderr io.Writer, getenv func(string) string, stdin io.Reader) error {
 	if len(args) == 0 {
 		fmt.Fprint(stderr, usage)
@@ -142,11 +143,11 @@ func runWithStdin(args []string, stdout, stderr io.Writer, getenv func(string) s
 	case "delegates":
 		return runDelegatesWithStdin(args[1:], stdout, stderr, getenv, stdin)
 	case "inspect":
-		return runInspect(args[1:], stdout, stderr)
+		return runInspect(args[1:], stdout, stderr, stdin)
 	case "diff":
-		return runDiff(args[1:], stdout, stderr)
+		return runDiff(args[1:], stdout, stderr, stdin)
 	case "verify":
-		return runVerify(args[1:], stdout, stderr)
+		return runVerify(args[1:], stdout, stderr, stdin)
 	case "tree":
 		return runTree(args[1:], stdout, stderr)
 	case "tui":
@@ -195,13 +196,20 @@ func resolveNetwork(value string) (string, error) {
 // returns value.
 //
 // This is the path for the subcommands that do not inject their own reader —
-// inspect, verify and tree. It delegates to resolveEntryArg rather than reading
-// os.Stdin itself so that there is one definition of what `--entry -` means,
-// including the whitespace trimming a pipeline depends on; the two used to
-// diverge, and `soroauth delegates … | soroauth inspect --entry -` failed with
-// "input not fully consumed" on the trailing newline.
+// tree — plus the helpers whose callers do not carry a stream. It delegates
+// to resolveEntryArg rather than reading os.Stdin itself so that there is one
+// definition of what `--entry -` means, including the whitespace trimming a
+// pipeline depends on; the two used to diverge, and `soroauth delegates … |
+// soroauth inspect --entry -` failed with "input not fully consumed" on the
+// trailing newline.
 func readEntryFlag(value string) (string, error) {
-	resolved, err := resolveEntryArg(value, os.Stdin)
+	return readEntryFlagFrom(value, os.Stdin)
+}
+
+// readEntryFlagFrom is readEntryFlag with the input stream injected, so the
+// dispatcher can hand each subcommand the same stdin its tests drive.
+func readEntryFlagFrom(value string, stdin io.Reader) (string, error) {
+	resolved, err := resolveEntryArg(value, stdin)
 	if err != nil {
 		return "", fmt.Errorf("reading from stdin: %w", err)
 	}
@@ -254,10 +262,17 @@ func decodeEntry(value string) (xdr.SorobanAuthorizationEntry, error) {
 // so a caller is sent to the flag that is actually wrong rather than to
 // "--entry", which diff does not have.
 func decodeEntryNamed(name, value string) (xdr.SorobanAuthorizationEntry, error) {
+	return decodeEntryNamedFrom(name, value, os.Stdin)
+}
+
+// decodeEntryNamedFrom is decodeEntryNamed with the input stream injected, so
+// a caller that received stdin from the dispatcher (diff) reads from that
+// stream rather than the process's.
+func decodeEntryNamedFrom(name, value string, stdin io.Reader) (xdr.SorobanAuthorizationEntry, error) {
 	if value == "" {
 		return xdr.SorobanAuthorizationEntry{}, newErrorf(ExitUsageError, "%s is required", name)
 	}
-	val, err := readEntryFlag(value)
+	val, err := readEntryFlagFrom(value, stdin)
 	if err != nil {
 		return xdr.SorobanAuthorizationEntry{}, newErrorf(ExitUsageError, "%w", err)
 	}
@@ -289,10 +304,16 @@ type decodedInput struct {
 // the entry error is reported, since --entry has always meant an entry and a
 // caller who passed an envelope with nothing to authorize should hear why.
 func decodeEntryOrEnvelope(value string) (decodedInput, error) {
+	return decodeEntryOrEnvelopeFrom(value, os.Stdin)
+}
+
+// decodeEntryOrEnvelopeFrom is decodeEntryOrEnvelope with the input stream
+// injected, so a subcommand dispatched with a stdin gets it here too.
+func decodeEntryOrEnvelopeFrom(value string, stdin io.Reader) (decodedInput, error) {
 	if value == "" {
 		return decodedInput{}, newErrorf(ExitUsageError, "--entry is required")
 	}
-	val, err := readEntryFlag(value)
+	val, err := readEntryFlagFrom(value, stdin)
 	if err != nil {
 		return decodedInput{}, newErrorf(ExitUsageError, "%w", err)
 	}

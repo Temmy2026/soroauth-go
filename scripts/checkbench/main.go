@@ -26,9 +26,16 @@ import (
 )
 
 // Budget is the ceiling for one benchmark. A missing field means "no gate".
+//
+// Operation and Arm are optional metadata: when set they name the cost in the
+// terms the gate is organised by ("signing", "delegates"), so a failure reads
+// as "signing/delegates exceeded its baseline" instead of an opaque benchmark
+// name. They do not affect the comparison, only how it is reported.
 type Budget struct {
-	Allocs *int `json:"allocs,omitempty"`
-	Bytes  *int `json:"bytes,omitempty"`
+	Operation string `json:"operation,omitempty"`
+	Arm       string `json:"arm,omitempty"`
+	Allocs    *int   `json:"allocs,omitempty"`
+	Bytes     *int   `json:"bytes,omitempty"`
 }
 
 // File is the on-disk budget document.
@@ -81,25 +88,26 @@ func main() {
 	for name, budget := range budgets.Budgets {
 		r, ok := byName[name]
 		if !ok {
-			fmt.Printf("FAIL %-45s benchmark not found in output\n", name)
+			fmt.Printf("FAIL %-45s benchmark %s not found in output\n", budgetLabel(name, budget), name)
 			failed = true
 			continue
 		}
 		checked++
 		problems := []string{}
 		if budget.Allocs != nil && r.allocs > *budget.Allocs {
-			problems = append(problems, fmt.Sprintf("allocs/op %d > budget %d", r.allocs, *budget.Allocs))
+			problems = append(problems, fmt.Sprintf("allocs/op %d > baseline %d", r.allocs, *budget.Allocs))
 		}
 		if budget.Bytes != nil && r.bytes > *budget.Bytes {
-			problems = append(problems, fmt.Sprintf("B/op %d > budget %d", r.bytes, *budget.Bytes))
+			problems = append(problems, fmt.Sprintf("B/op %d > baseline %d", r.bytes, *budget.Bytes))
 		}
 		if len(problems) > 0 {
-			fmt.Printf("FAIL %-45s %s  (was %.0f ns/op)\n", name, strings.Join(problems, "; "), r.nsPerOp)
+			fmt.Printf("FAIL %-45s %s\n", budgetLabel(name, budget), strings.Join(problems, "; "))
+			fmt.Printf("     %-45s benchmark %s  (%.0f ns/op)\n", "", name, r.nsPerOp)
 			failed = true
 			continue
 		}
-		fmt.Printf("ok   %-45s allocs=%d budget=%s  bytes=%d budget=%s  (%.0f ns/op)\n",
-			name, r.allocs, fmtBudget(budget.Allocs), r.bytes, fmtBudget(budget.Bytes), r.nsPerOp)
+		fmt.Printf("ok   %-45s allocs=%d baseline=%s  bytes=%d baseline=%s  (%.0f ns/op)\n",
+			budgetLabel(name, budget), r.allocs, fmtBudget(budget.Allocs), r.bytes, fmtBudget(budget.Bytes), r.nsPerOp)
 	}
 
 	// Every observed benchmark that has a budget was checked; also warn about
@@ -134,6 +142,26 @@ func fmtBudget(v *int) string {
 		return "-"
 	}
 	return strconv.Itoa(*v)
+}
+
+// budgetLabel renders a budget's human-facing identity: its operation and arm
+// when the budget declares them, otherwise the benchmark name. Printing this
+// instead of the raw benchmark path is what makes a failure read as
+// "signing/delegates exceeded its baseline" rather than an opaque Go test name.
+//
+// Operation and Arm never affect the comparison; a budget with neither set
+// still works and just falls back to the benchmark name.
+func budgetLabel(name string, b Budget) string {
+	switch {
+	case b.Operation == "" && b.Arm == "":
+		return name
+	case b.Arm == "":
+		return b.Operation
+	case b.Operation == "":
+		return b.Arm
+	default:
+		return b.Operation + "/" + b.Arm
+	}
 }
 
 // stripParallel removes the trailing "-<n>" that `go test -bench` appends for
