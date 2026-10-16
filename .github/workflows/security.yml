@@ -87,7 +87,7 @@ jobs:
     steps:
       - name: Check Dependency Graph support
         id: dep-graph-check
-        uses: actions/github-script@60a4d20082b1c4c3e8e5d0a015a5e9d6a7b8c9d0 # v7
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
         with:
           script: |
             const { data: repo } = await github.rest.repos.get({
